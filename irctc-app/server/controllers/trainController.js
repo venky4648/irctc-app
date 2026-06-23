@@ -1,5 +1,6 @@
 import Train from "../models/train.js";
 import TrainRoute from "../models/trainRoute.js";
+import { SeatOccupancy } from "../models/seatOccupancy.js";
 
 // Add Train
 export const addTrain = async (req, res) => {
@@ -117,26 +118,33 @@ export const searchTrains = async (req, res) => {
   try {
     const allTrains = await getJoinedTrains();
     
-    const matchedTrains = allTrains.filter(train => {
+    const matchedTrains = [];
+
+    for (const train of allTrains) {
+      let arrivalDayOffset = 0;
+      let requestedSegments = [];
+
       // 1. Verify route order
-      let arrivalDayOffset = 0; // Days to subtract to find origin date (arrivalDay - 1)
       if (train.route && train.route.length > 0) {
         const fromIndex = train.route.findIndex(s => s.stationName.toLowerCase().includes(from.toLowerCase()));
         const toIndex = train.route.findIndex(s => s.stationName.toLowerCase().includes(to.toLowerCase()));
         if (fromIndex === -1 || toIndex === -1 || fromIndex >= toIndex) {
-          return false;
+          continue;
         }
         arrivalDayOffset = (train.route[fromIndex].arrivalDay || 1) - 1;
+        
+        for (let i = fromIndex; i < toIndex; i++) {
+          requestedSegments.push(i);
+        }
       } else {
         // Fallback
         if (!(train.from.toLowerCase().includes(from.toLowerCase()) && train.to.toLowerCase().includes(to.toLowerCase()))) {
-          return false;
+          continue;
         }
       }
 
       // 2. Schedule Check
       if (date) {
-        // Find train origin date
         const userJourneyDate = new Date(date);
         const originDate = new Date(userJourneyDate);
         originDate.setDate(originDate.getDate() - arrivalDayOffset);
@@ -147,17 +155,51 @@ export const searchTrains = async (req, res) => {
 
         if (train.scheduleType === 'WEEKLY') {
           if (!train.runningDays || !train.runningDays.includes(originWeekday)) {
-            return false;
+            continue;
           }
         } else if (train.scheduleType === 'SPECIAL') {
           if (!train.runningDates || !train.runningDates.includes(originDateString)) {
-            return false;
+            continue;
           }
         }
       }
 
-      return true;
-    });
+      // 3. Segment Availability Calculation
+      let classes = train.classes;
+      if (!classes && train.seatAvailable !== undefined) {
+        classes = {
+          general: { totalSeats: train.seatAvailable, price: train.price || 0 }
+        };
+      }
+      
+      if (classes && requestedSegments.length > 0 && date) {
+        for (const [cls, data] of Object.entries(classes)) {
+          if (data.totalSeats > 0) {
+            const occupiedRecords = await SeatOccupancy.find({
+              trainId: train._id,
+              journeyDate: date,
+              travelClass: cls,
+              segmentIndex: { $in: requestedSegments }
+            }).lean();
+            
+            const occupiedSeats = new Set(occupiedRecords.map(r => r.seatNumber));
+            const availableSeats = data.totalSeats - occupiedSeats.size;
+            
+            classes[cls].availableSeats = availableSeats;
+          }
+        }
+      } else if (classes) {
+        // Fallback
+        for (const [cls, data] of Object.entries(classes)) {
+           if (data.availableSeats === undefined && data.totalSeats !== undefined) {
+             classes[cls].availableSeats = data.totalSeats;
+           }
+        }
+      }
+      
+      train.classes = classes;
+      matchedTrains.push(train);
+    }
 
     if (matchedTrains.length === 0) {
       return res.status(404).json({

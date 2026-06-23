@@ -25,17 +25,11 @@ export default function SearchTrains() {
   const [expandedTrain, setExpandedTrain] = useState(null);
   const [routeModalTrain, setRouteModalTrain] = useState(null);
 
-  useEffect(() => {
-    if (params.get('from') && params.get('to')) {
-      doSearch(params.get('from'), params.get('to'));
-    }
-  }, []);
-
-  const doSearch = async (f, t) => {
+  const doSearch = async (f, t, d) => {
     if (!f?.trim() || !t?.trim()) return;
     setLoading(true); setError(''); setSearched(true);
     try {
-      const { data } = await API.get(`/trains/search?from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}&date=${date}`);
+      const { data } = await API.get(`/trains/search?from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}&date=${d}`);
       const normalizedTrains = (data.trains || []).map(t => {
         if (!t.classes && t.seatAvailable !== undefined) {
           return {
@@ -60,9 +54,22 @@ export default function SearchTrains() {
     }
   };
 
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (from?.trim() && to?.trim()) {
+        doSearch(from, to, date);
+      } else {
+        setTrains([]);
+        setSearched(false);
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [from, to, date]);
+
   const handleSearch = (e) => {
     e.preventDefault();
-    doSearch(from, to);
+    doSearch(from, to, date);
   };
 
   const handleBook = (train, cls) => {
@@ -211,34 +218,54 @@ export default function SearchTrains() {
                     <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)', fontWeight: 600 }}>
                       Runs: <span style={{ color: 'var(--irctc-orange)' }}>
                         {train.scheduleType === 'DAILY' ? 'Daily' : 
-                         train.scheduleType === 'WEEKLY' ? train.runningDays.map(d => d.slice(0, 3)).join(', ') : 
-                         train.runningDates.slice(0, 3).join(', ') + (train.runningDates.length > 3 ? '...' : '')}
+                         train.scheduleType === 'WEEKLY' ? (train.runningDays || []).map(d => d.slice(0, 3)).join(', ') : 
+                         (train.runningDates || []).slice(0, 3).join(', ') + ((train.runningDates || []).length > 3 ? '...' : '')}
                       </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Timing */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--irctc-gray-800)' }}>{formatTime12hr(train.departureTime)}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)', fontWeight: 600 }}>{train.from}</div>
-                  </div>
-                  <div style={{ textAlign: 'center', color: 'var(--irctc-gray-400)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <div style={{ width: '40px', height: '2px', background: 'var(--irctc-gray-300)' }} />
-                      <ArrowRight size={16} />
-                      <div style={{ width: '40px', height: '2px', background: 'var(--irctc-gray-300)' }} />
+                {(() => {
+                  let displayFrom = train.from;
+                  let displayTo = train.to;
+                  let displayDep = train.departureTime;
+                  let displayArr = train.arrivalTime;
+                  
+                  if (train.route && train.route.length > 0) {
+                    const fromStationObj = train.route.find(s => s.stationName.toLowerCase().includes(from.toLowerCase()));
+                    const toStationObj = train.route.find(s => s.stationName.toLowerCase().includes(to.toLowerCase()));
+                    if (fromStationObj && toStationObj) {
+                      displayFrom = fromStationObj.stationName;
+                      displayTo = toStationObj.stationName;
+                      displayDep = fromStationObj.departureTime;
+                      displayArr = toStationObj.arrivalTime;
+                    }
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--irctc-gray-800)' }}>{formatTime12hr(displayDep)}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)', fontWeight: 600 }}>{displayFrom}</div>
+                      </div>
+                      <div style={{ textAlign: 'center', color: 'var(--irctc-gray-400)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <div style={{ width: '40px', height: '2px', background: 'var(--irctc-gray-300)' }} />
+                          <ArrowRight size={16} />
+                          <div style={{ width: '40px', height: '2px', background: 'var(--irctc-gray-300)' }} />
+                        </div>
+                        <div style={{ fontSize: '11px', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--irctc-gray-400)' }}>
+                          <Clock size={11} /> Overnight
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--irctc-gray-800)' }}>{formatTime12hr(displayArr)}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)', fontWeight: 600 }}>{displayTo}</div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: '11px', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--irctc-gray-400)' }}>
-                      <Clock size={11} /> Overnight
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--irctc-gray-800)' }}>{formatTime12hr(train.arrivalTime)}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)', fontWeight: 600 }}>{train.to}</div>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {train.route && train.route.length > 0 && (

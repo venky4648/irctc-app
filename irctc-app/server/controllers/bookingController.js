@@ -1,5 +1,7 @@
 import { Booking } from "../models/bookings.js";
 import Train from "../models/train.js";
+import TrainRoute from "../models/trainRoute.js";
+import { SeatOccupancy } from "../models/seatOccupancy.js";
 
 // Generate PNR
 const generatePNR = () => {
@@ -9,48 +11,80 @@ const generatePNR = () => {
 // Simulate payment
 const simulatePayment = async (amount) => {
   const success = true;
-
   return {
     status: success ? "completed" : "failed",
     paymentId: "PAY" + Date.now(),
   };
 };
 
+const getRequiredSegments = async (trainId, source, destination) => {
+  if (!source || !destination) return null;
+  const routes = await TrainRoute.find({ train: trainId }).sort({ stationOrder: 1 }).lean();
+  
+  if (routes.length === 0) {
+    // Legacy train without route segments defined. Book a single default segment.
+    return [0];
+  }
+
+  const sourceIndex = routes.findIndex(r => r.stationName.toLowerCase().includes(source.toLowerCase()));
+  const destIndex = routes.findIndex(r => r.stationName.toLowerCase().includes(destination.toLowerCase()));
+
+  if (sourceIndex === -1 || destIndex === -1 || sourceIndex >= destIndex) {
+    // Fallback if they booked using the global train.from and train.to which might not perfectly match the route names
+    const segments = [];
+    for (let i = 0; i < routes.length; i++) {
+       segments.push(i);
+    }
+    return segments;
+  }
+
+  const segments = [];
+  for (let i = sourceIndex; i < destIndex; i++) {
+    segments.push(i);
+  }
+  return segments;
+};
+
 // Check Seat Availability
 export const checkAvailabilityAndGetAmount = async (req, res) => {
   try {
-    const { trainId, passengers, travelClass } = req.body;
+    const { trainId, passengers, travelClass, source, destination, journeyDate } = req.body;
 
     const train = await Train.findById(trainId).lean();
+    if (!train) return res.status(404).json({ message: "Train not found" });
 
-    if (!train) {
-      return res.status(404).json({ message: "Train not found" });
+    if (!source || !destination || !journeyDate) {
+      return res.status(400).json({ message: "Source, destination, and journeyDate are required for checking availability" });
     }
+
+    const segments = await getRequiredSegments(trainId, source, destination);
+    if (!segments) return res.status(400).json({ message: "Invalid source or destination station for this train" });
 
     let classes = train.classes;
     const hasClassData = classes && classes[travelClass] && typeof classes[travelClass].price === 'number';
     if (!hasClassData && train.seatAvailable !== undefined) {
       classes = {
-        general: {
-          totalSeats: train.seatAvailable,
-          availableSeats: train.seatAvailable,
-          price: train.price || 0
-        }
+        general: { totalSeats: train.seatAvailable, price: train.price || 0 }
       };
     }
-
     const classData = classes ? classes[travelClass] : null;
+    if (!classData) return res.status(400).json({ message: "Invalid travel class" });
 
-    if (!classData) {
-      return res.status(400).json({
-        message: "Invalid travel class",
-      });
-    }
+    // Find occupied seats for the requested segments
+    const occupiedRecords = await SeatOccupancy.find({
+      trainId,
+      journeyDate,
+      travelClass,
+      segmentIndex: { $in: segments }
+    }).lean();
 
-    if (classData.availableSeats < passengers.length) {
+    const occupiedSeats = new Set(occupiedRecords.map(r => r.seatNumber));
+    const availableSeatCount = classData.totalSeats - occupiedSeats.size;
+
+    if (availableSeatCount < passengers.length) {
       return res.status(400).json({
-        message: "Not enough seats available",
-        available: classData.availableSeats,
+        message: "Not enough seats available for this route segment",
+        available: availableSeatCount,
         requested: passengers.length,
       });
     }
@@ -64,7 +98,7 @@ export const checkAvailabilityAndGetAmount = async (req, res) => {
       totalAmount,
       travelClass,
       seatsRequested: passengers.length,
-      seatsAvailable: classData.availableSeats,
+      seatsAvailable: availableSeatCount,
       trainDetails: {
         trainId: train._id,
         trainName: train.trainName,
@@ -80,50 +114,73 @@ export const checkAvailabilityAndGetAmount = async (req, res) => {
 // Book Train
 export const bookTrain = async (req, res) => {
   try {
-    const { trainId, passengers, travelClass } = req.body;
+    const { trainId, passengers, travelClass, source, destination, journeyDate } = req.body;
 
     const train = await Train.findById(trainId).lean();
+    if (!train) return res.status(404).json({ message: "Train not found" });
 
-    if (!train) {
-      return res.status(404).json({ message: "Train not found" });
+    if (!source || !destination || !journeyDate) {
+      return res.status(400).json({ message: "Source, destination, and journeyDate are required for booking" });
     }
+
+    const segments = await getRequiredSegments(trainId, source, destination);
+    if (!segments) return res.status(400).json({ message: "Invalid source or destination station for this train" });
 
     let classes = train.classes;
     const hasClassData = classes && classes[travelClass] && typeof classes[travelClass].price === 'number';
     if (!hasClassData && train.seatAvailable !== undefined) {
       classes = {
-        general: {
-          totalSeats: train.seatAvailable,
-          availableSeats: train.seatAvailable,
-          price: train.price || 0
-        }
+        general: { totalSeats: train.seatAvailable, price: train.price || 0 }
       };
     }
-
     const classData = classes ? classes[travelClass] : null;
+    if (!classData) return res.status(400).json({ message: "Invalid travel class" });
 
-    if (!classData) {
-      return res.status(400).json({
-        message: "Invalid travel class",
-      });
-    }
+    // Find occupied seats for the requested segments
+    const occupiedRecords = await SeatOccupancy.find({
+      trainId,
+      journeyDate,
+      travelClass,
+      segmentIndex: { $in: segments }
+    }).lean();
 
-    if (classData.availableSeats < passengers.length) {
-      return res.status(400).json({
-        message: "Not enough seats available",
-      });
+    const occupiedSeats = new Set(occupiedRecords.map(r => r.seatNumber));
+    const availableSeatCount = classData.totalSeats - occupiedSeats.size;
+
+    if (availableSeatCount < passengers.length) {
+      return res.status(400).json({ message: "Not enough seats available for this route segment. Another user might have just booked." });
     }
 
     const price = typeof classData.price === 'number' ? classData.price : 0;
     const totalAmount = passengers.length * price;
-
     const payment = await simulatePayment(totalAmount);
 
     if (payment.status === "failed") {
-      return res.status(400).json({
-        message: "Payment failed. Please try again.",
-      });
+      return res.status(400).json({ message: "Payment failed. Please try again." });
     }
+
+    // Allocate seats
+    const allocatedSeats = [];
+    let currentSeatNumber = 1;
+    while (allocatedSeats.length < passengers.length && currentSeatNumber <= classData.totalSeats) {
+      if (!occupiedSeats.has(currentSeatNumber)) {
+         allocatedSeats.push(currentSeatNumber);
+      }
+      currentSeatNumber++;
+    }
+
+    const coachSizes = { ac1: 24, ac2: 54, ac3: 72, general: 100 };
+    const coachPrefix = { ac1: "H", ac2: "A", ac3: "B", general: "S" };
+    const coachSize = coachSizes[travelClass] || 72;
+    const prefix = coachPrefix[travelClass] || "C";
+
+    passengers.forEach((passenger, i) => {
+       const seatNum = allocatedSeats[i];
+       const coachIndex = Math.ceil(seatNum / coachSize) || 1;
+       const coachName = `${prefix}${coachIndex}`;
+       passenger.seatNumber = seatNum;
+       passenger.coach = coachName;
+    });
 
     const pnrNumber = generatePNR();
 
@@ -140,20 +197,27 @@ export const bookTrain = async (req, res) => {
       paymentId: payment.paymentId,
     });
 
-    const updateQuery = {};
-    if (train.classes && train.classes[travelClass] && typeof train.classes[travelClass].availableSeats === 'number') {
-      updateQuery[`classes.${travelClass}.availableSeats`] = -passengers.length;
-    } else if (train.seatAvailable !== undefined) {
-      updateQuery['seatAvailable'] = -passengers.length;
+    // Insert Segment Occupancy Records
+    const occupancyDocs = [];
+    passengers.forEach(passenger => {
+       segments.forEach(seg => {
+         occupancyDocs.push({
+           trainId,
+           journeyDate,
+           travelClass,
+           seatNumber: passenger.seatNumber,
+           coach: passenger.coach,
+           segmentIndex: seg,
+           bookingId: booking._id
+         });
+       });
+    });
+    
+    if (occupancyDocs.length > 0) {
+      await SeatOccupancy.insertMany(occupancyDocs);
     }
 
-    if (Object.keys(updateQuery).length > 0) {
-      await Train.updateOne(
-        { _id: trainId },
-        { $inc: updateQuery },
-        { runValidators: false, strict: false }
-      );
-    }
+    // NOTE: We no longer decrement a global `availableSeats` value because availability is computed dynamically.
 
     res.status(201).json({
       success: true,
@@ -194,37 +258,19 @@ export const cancelBooking = async (req, res) => {
     }
 
     if (booking.user.toString() !== req.user._id.toString()) {
-      return res.status(401).json({
-        message: "Not authorized to cancel this booking",
-      });
+      return res.status(401).json({ message: "Not authorized to cancel this booking" });
     }
 
-    const train = await Train.findById(booking.train).lean();
+    // Free the seats by deleting SeatOccupancy records
+    await SeatOccupancy.deleteMany({ bookingId: booking._id });
 
-    if (!train) {
-      return res.status(404).json({ message: "Train not found" });
-    }
-
-    const updateQuery = {};
-    if (train.classes && train.classes[booking.travelClass] && typeof train.classes[booking.travelClass].availableSeats === 'number') {
-      updateQuery[`classes.${booking.travelClass}.availableSeats`] = booking.totalSeats;
-    } else if (train.seatAvailable !== undefined) {
-      updateQuery['seatAvailable'] = booking.totalSeats;
-    }
-
-    if (Object.keys(updateQuery).length > 0) {
-      await Train.updateOne(
-        { _id: train._id },
-        { $inc: updateQuery },
-        { runValidators: false, strict: false }
-      );
-    }
-
-    await booking.deleteOne();
+    // Update booking status
+    booking.bookingStatus = "cancelled";
+    await booking.save();
 
     res.json({
       success: true,
-      message: "Booking cancelled successfully",
+      message: "Booking cancelled successfully and seats have been freed",
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -235,10 +281,8 @@ export const cancelBooking = async (req, res) => {
 export const getUserBookings = async (req, res) => {
   try {
     const bookings = await Booking.find({ user: req.user._id })
-      .populate(
-        "train",
-        "trainName trainNumber from to departureTime arrivalTime"
-      );
+      .populate("train", "trainName trainNumber from to departureTime arrivalTime")
+      .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
@@ -255,16 +299,11 @@ export const getBookingByPNR = async (req, res) => {
     const { pnr } = req.params;
 
     const booking = await Booking.findOne({ pnrNumber: pnr })
-      .populate(
-        "train",
-        "trainName trainNumber from to departureTime arrivalTime"
-      )
+      .populate("train", "trainName trainNumber from to departureTime arrivalTime")
       .populate("user", "name email phone");
 
     if (!booking) {
-      return res.status(404).json({
-        message: "Booking not found with this PNR number",
-      });
+      return res.status(404).json({ message: "Booking not found with this PNR number" });
     }
 
     res.status(200).json({
@@ -282,8 +321,6 @@ export const getBookingByPNR = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
-      message: error.message,
-    });
+    res.status(500).json({ message: error.message });
   }
 };

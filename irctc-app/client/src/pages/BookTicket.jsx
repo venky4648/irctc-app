@@ -15,11 +15,14 @@ export default function BookTicket() {
   const navigate = useNavigate();
 
   const selectedClass = params.get('class') || 'ac3';
-  const fromStation = params.get('from') || '';
-  const toStation = params.get('to') || '';
+  const paramFrom = params.get('from') || '';
+  const paramTo = params.get('to') || '';
   const searchDate = params.get('date') || new Date().toISOString().split('T')[0];
 
   const [train, setTrain] = useState(null);
+  const fromStation = paramFrom || train?.from || '';
+  const toStation = paramTo || train?.to || '';
+  
   const [loading, setLoading] = useState(true);
   const [passengers, setPassengers] = useState([emptyPassenger()]);
   const [step, setStep] = useState(1); // 1: passengers, 2: payment, 3: confirm
@@ -27,6 +30,11 @@ export default function BookTicket() {
   const [booking, setBooking] = useState(null);
   const [booking_loading, setBookingLoading] = useState(false);
   const [upiId, setUpiId] = useState('');
+  
+  // Real-time Availability State
+  const [availableSeats, setAvailableSeats] = useState(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState('');
 
   useEffect(() => {
     const fetchTrains = async () => {
@@ -39,7 +47,6 @@ export default function BookTicket() {
             classes: {
               general: {
                 totalSeats: found.seatAvailable,
-                availableSeats: found.seatAvailable,
                 price: found.price || 0
               }
             }
@@ -54,6 +61,31 @@ export default function BookTicket() {
     };
     fetchTrains();
   }, [trainId]);
+
+  useEffect(() => {
+    const checkAvailability = async () => {
+      if (!train || !fromStation || !toStation || !searchDate) return;
+      setAvailabilityLoading(true);
+      setAvailabilityError('');
+      try {
+        const { data } = await API.post('/bookings/check-availability', {
+          trainId,
+          travelClass: selectedClass,
+          source: fromStation,
+          destination: toStation,
+          journeyDate: searchDate,
+          passengers: [] // just to check total available seats
+        });
+        setAvailableSeats(data.seatsAvailable);
+      } catch (err) {
+        setAvailabilityError(err.response?.data?.message || 'Failed to check availability');
+        setAvailableSeats(null);
+      } finally {
+        setAvailabilityLoading(false);
+      }
+    };
+    checkAvailability();
+  }, [train, fromStation, toStation, searchDate, selectedClass, trainId]);
 
   const classData = train?.classes?.[selectedClass];
   const price = classData?.price || 0;
@@ -170,6 +202,9 @@ export default function BookTicket() {
         trainId,
         passengers: passengers.map(p => ({ ...p, age: Number(p.age) })),
         travelClass: selectedClass,
+        source: fromStation,
+        destination: toStation,
+        journeyDate: searchDate
       });
       setBooking(data);
       setStep(3);
@@ -261,6 +296,12 @@ export default function BookTicket() {
                       <div style={{ fontWeight: 600, fontSize: '14px' }}>{p.name}</div>
                       <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)' }}>{p.age} yrs · {p.gender} · {p.berthPreference}</div>
                     </div>
+                    {p.coach && p.seatNumber && (
+                      <div style={{ background: 'white', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--irctc-gray-300)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', color: 'var(--irctc-gray-500)', fontWeight: 700, textTransform: 'uppercase' }}>Seat</div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--irctc-blue)' }}>{p.coach}-{p.seatNumber}</div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -529,6 +570,20 @@ export default function BookTicket() {
             ))}
 
             <div style={{ borderTop: '2px dashed var(--irctc-gray-200)', marginTop: '14px', paddingTop: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
+                <span style={{ color: 'var(--irctc-gray-500)' }}>Availability</span>
+                {availabilityLoading ? (
+                  <span style={{ color: 'var(--irctc-gray-400)' }}>Calculating...</span>
+                ) : availabilityError ? (
+                  <span style={{ color: 'var(--irctc-red)' }}>Error checking</span>
+                ) : availableSeats !== null ? (
+                  <span style={{ color: availableSeats > 10 ? 'var(--irctc-green)' : 'var(--irctc-orange)', fontWeight: 700 }}>
+                    {availableSeats > 0 ? `AVAILABLE - ${availableSeats}` : 'WL / FULL'}
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--irctc-gray-400)' }}>-</span>
+                )}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
                 <span style={{ color: 'var(--irctc-gray-500)' }}>Base Fare</span>
                 <span>₹{price} × {passengers.length}</span>
