@@ -17,6 +17,7 @@ export default function BookTicket() {
   const selectedClass = params.get('class') || 'ac3';
   const fromStation = params.get('from') || '';
   const toStation = params.get('to') || '';
+  const searchDate = params.get('date') || new Date().toISOString().split('T')[0];
 
   const [train, setTrain] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -57,6 +58,88 @@ export default function BookTicket() {
   const classData = train?.classes?.[selectedClass];
   const price = classData?.price || 0;
   const totalAmount = price * passengers.length;
+
+  const formatTime12hr = (time) => {
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    let hours = parseInt(h, 10);
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${hours}:${m} ${ampm}`;
+  };
+
+  const formatDateTime = (time, dayIndex, baseDateStr) => {
+    if (!time || !baseDateStr) return formatTime12hr(time);
+    const baseDate = new Date(baseDateStr);
+    baseDate.setDate(baseDate.getDate() + ((dayIndex || 1) - 1));
+    const options = { month: 'short', day: 'numeric' };
+    return `${baseDate.toLocaleDateString('en-IN', options)}, ${formatTime12hr(time)}`;
+  };
+
+  let journeyFrom = train?.from;
+  let journeyTo = train?.to;
+  let journeyDep = train?.departureTime;
+  let journeyArr = train?.arrivalTime;
+
+  let journeyDepDay = 1;
+  let journeyArrDay = 1;
+
+  let arrivalDayOffset = 0;
+
+  if (train?.route && train.route.length > 0 && fromStation && toStation) {
+    const fromStationObj = train.route.find(s => s.stationName.toLowerCase().includes(fromStation.toLowerCase()));
+    const toStationObj = train.route.find(s => s.stationName.toLowerCase().includes(toStation.toLowerCase()));
+    if (fromStationObj && toStationObj) {
+      journeyFrom = fromStationObj.stationName;
+      journeyTo = toStationObj.stationName;
+      journeyDep = fromStationObj.departureTime;
+      journeyArr = toStationObj.arrivalTime;
+      journeyDepDay = fromStationObj.departureDay || 1;
+      journeyArrDay = toStationObj.arrivalDay || 1;
+      arrivalDayOffset = (fromStationObj.arrivalDay || 1) - 1;
+    }
+  }
+
+  let isScheduleValid = true;
+  if (train && searchDate) {
+    const userJourneyDate = new Date(searchDate);
+    const originDate = new Date(userJourneyDate);
+    originDate.setDate(originDate.getDate() - arrivalDayOffset);
+    
+    const originDateString = originDate.toISOString().split('T')[0];
+    const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+    const originWeekday = days[originDate.getDay()];
+
+    if (train.scheduleType === 'WEEKLY') {
+      if (!train.runningDays || !train.runningDays.includes(originWeekday)) {
+        isScheduleValid = false;
+      }
+    } else if (train.scheduleType === 'SPECIAL') {
+      if (!train.runningDates || !train.runningDates.includes(originDateString)) {
+        isScheduleValid = false;
+      }
+    }
+  }
+
+  const getDuration = (dep, arr, depDay, arrDay) => {
+    if (!dep || !arr) return '';
+    const [dHr, dMin] = dep.split(':').map(Number);
+    const [aHr, aMin] = arr.split(':').map(Number);
+    if (isNaN(dHr) || isNaN(aHr)) return '';
+    let totalMin = (aHr * 60 + aMin) - (dHr * 60 + dMin);
+    
+    const dayDiff = arrDay - depDay;
+    if (dayDiff > 0) {
+      totalMin += dayDiff * 24 * 60;
+    } else if (totalMin < 0) {
+      totalMin += 24 * 60; // Next day fallback
+    }
+
+    const hrs = Math.floor(totalMin / 60);
+    const mins = totalMin % 60;
+    return `${hrs}h ${mins}m`;
+  };
+  const duration = getDuration(journeyDep, journeyArr, journeyDepDay, journeyArrDay);
 
   const addPassenger = () => {
     if (passengers.length >= 6) { toast.error('Maximum 6 passengers per booking'); return; }
@@ -114,6 +197,16 @@ export default function BookTicket() {
     </div>
   );
 
+  if (!isScheduleValid) return (
+    <div style={{ textAlign: 'center', padding: '80px' }}>
+      <div style={{ fontSize: '18px', color: 'var(--irctc-red)', fontWeight: 600 }}>Train does not run on the selected date.</div>
+      <div style={{ fontSize: '14px', color: 'var(--irctc-gray-500)', marginTop: '8px' }}>Please select a different date or train.</div>
+      <button onClick={() => navigate('/search')} style={{ marginTop: '16px', padding: '10px 20px', background: 'var(--irctc-blue)', color: 'white', borderRadius: '8px' }}>
+        Back to Search
+      </button>
+    </div>
+  );
+
   // Step 3 - Booking Confirmed
   if (step === 3 && booking) {
     const bd = booking.bookingDetails;
@@ -141,10 +234,11 @@ export default function BookTicket() {
                 {[
                   { label: 'Train', value: `${bd.trainName} (${bd.trainNumber})` },
                   { label: 'Class', value: CLASS_LABELS[bd.travelClass] },
-                  { label: 'From', value: train.from },
-                  { label: 'To', value: train.to },
-                  { label: 'Departure', value: train.departureTime },
-                  { label: 'Arrival', value: train.arrivalTime },
+                  { label: 'From', value: journeyFrom },
+                  { label: 'To', value: journeyTo },
+                  { label: 'Departure', value: formatDateTime(journeyDep, journeyDepDay, searchDate) },
+                  { label: 'Arrival', value: formatDateTime(journeyArr, journeyArrDay, searchDate) },
+                  { label: 'Duration', value: duration },
                   { label: 'Passengers', value: bd.totalSeats },
                   { label: 'Status', value: bd.bookingStatus.toUpperCase() },
                 ].map(({ label, value }) => (
@@ -420,10 +514,11 @@ export default function BookTicket() {
             </div>
 
             {[
-              { label: 'From', value: train.from },
-              { label: 'To', value: train.to },
-              { label: 'Departure', value: train.departureTime },
-              { label: 'Arrival', value: train.arrivalTime },
+              { label: 'From', value: journeyFrom },
+              { label: 'To', value: journeyTo },
+              { label: 'Departure', value: formatDateTime(journeyDep, journeyDepDay, searchDate) },
+              { label: 'Arrival', value: formatDateTime(journeyArr, journeyArrDay, searchDate) },
+              { label: 'Duration', value: duration },
               { label: 'Class', value: CLASS_LABELS[selectedClass] },
               { label: 'Passengers', value: passengers.length },
             ].map(({ label, value }) => (

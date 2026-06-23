@@ -33,6 +33,22 @@ const trainSchema = new mongoose.Schema(
       required: true,
     },
 
+    scheduleType: {
+      type: String,
+      enum: ['DAILY', 'WEEKLY', 'SPECIAL'],
+      default: 'DAILY'
+    },
+
+    runningDays: {
+      type: [String],
+      default: []
+    },
+
+    runningDates: {
+      type: [String],
+      default: []
+    },
+
     classes: {
       general: {
         totalSeats: {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import API from '../utils/api';
-import { Train, Clock, ArrowRight, Users, AlertCircle, Filter, ChevronDown } from 'lucide-react';
+import { Train, Clock, ArrowRight, Users, AlertCircle, Filter, ChevronDown, MapPin, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import StationInput from '../components/StationInput';
 import toast from 'react-hot-toast';
@@ -23,6 +23,7 @@ export default function SearchTrains() {
   const [error, setError] = useState('');
   const [searched, setSearched] = useState(false);
   const [expandedTrain, setExpandedTrain] = useState(null);
+  const [routeModalTrain, setRouteModalTrain] = useState(null);
 
   useEffect(() => {
     if (params.get('from') && params.get('to')) {
@@ -34,7 +35,7 @@ export default function SearchTrains() {
     if (!f?.trim() || !t?.trim()) return;
     setLoading(true); setError(''); setSearched(true);
     try {
-      const { data } = await API.get(`/trains/search?from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}`);
+      const { data } = await API.get(`/trains/search?from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}&date=${date}`);
       const normalizedTrains = (data.trains || []).map(t => {
         if (!t.classes && t.seatAvailable !== undefined) {
           return {
@@ -70,7 +71,7 @@ export default function SearchTrains() {
       navigate('/login');
       return;
     }
-    navigate(`/book/${train._id}?class=${cls}&from=${encodeURIComponent(train.from)}&to=${encodeURIComponent(train.to)}`);
+    navigate(`/book/${train._id}?class=${cls}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&date=${date}`);
   };
 
   const filteredTrains = trains.filter(t => {
@@ -83,6 +84,23 @@ export default function SearchTrains() {
   const formatDate = (d) => {
     const dt = new Date(d);
     return dt.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const formatTime12hr = (time) => {
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    let hours = parseInt(h, 10);
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${hours}:${m} ${ampm}`;
+  };
+
+  const formatDateTime = (time, dayIndex, baseDateStr) => {
+    if (!time || !baseDateStr) return formatTime12hr(time);
+    const baseDate = new Date(baseDateStr);
+    baseDate.setDate(baseDate.getDate() + ((dayIndex || 1) - 1));
+    const options = { month: 'short', day: 'numeric' };
+    return `${baseDate.toLocaleDateString('en-IN', options)}, ${formatTime12hr(time)}`;
   };
 
   return (
@@ -187,15 +205,23 @@ export default function SearchTrains() {
                     <Train size={20} color="white" />
                   </div>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--irctc-gray-800)' }}>{train.trainName}</div>
-                    <div style={{ fontSize: '13px', color: 'var(--irctc-gray-500)', marginTop: '2px' }}>#{train.trainNumber}</div>
+                    <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--irctc-blue)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {train.trainName} <span style={{ fontSize: '14px', color: 'var(--irctc-gray-500)', fontWeight: 600 }}>({train.trainNumber})</span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)', fontWeight: 600 }}>
+                      Runs: <span style={{ color: 'var(--irctc-orange)' }}>
+                        {train.scheduleType === 'DAILY' ? 'Daily' : 
+                         train.scheduleType === 'WEEKLY' ? train.runningDays.map(d => d.slice(0, 3)).join(', ') : 
+                         train.runningDates.slice(0, 3).join(', ') + (train.runningDates.length > 3 ? '...' : '')}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
                 {/* Timing */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--irctc-gray-800)' }}>{train.departureTime}</div>
+                    <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--irctc-gray-800)' }}>{formatTime12hr(train.departureTime)}</div>
                     <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)', fontWeight: 600 }}>{train.from}</div>
                   </div>
                   <div style={{ textAlign: 'center', color: 'var(--irctc-gray-400)' }}>
@@ -209,22 +235,37 @@ export default function SearchTrains() {
                     </div>
                   </div>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--irctc-gray-800)' }}>{train.arrivalTime}</div>
+                    <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--irctc-gray-800)' }}>{formatTime12hr(train.arrivalTime)}</div>
                     <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)', fontWeight: 600 }}>{train.to}</div>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setExpandedTrain(expandedTrain === train._id ? null : train._id)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    padding: '8px 16px', border: '1px solid var(--irctc-gray-300)',
-                    borderRadius: '6px', background: 'white', fontSize: '13px',
-                    color: 'var(--irctc-gray-600)', cursor: 'pointer',
-                  }}
-                >
-                  <Filter size={14} /> View Classes <ChevronDown size={14} style={{ transform: expandedTrain === train._id ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {train.route && train.route.length > 0 && (
+                    <button
+                      onClick={() => setRouteModalTrain(train)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '6px',
+                        padding: '8px 16px', border: '1px solid var(--irctc-blue)',
+                        borderRadius: '6px', background: 'var(--irctc-blue)', fontSize: '13px',
+                        color: 'white', cursor: 'pointer', fontWeight: 600
+                      }}
+                    >
+                      <MapPin size={14} /> View Route
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setExpandedTrain(expandedTrain === train._id ? null : train._id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px',
+                      padding: '8px 16px', border: '1px solid var(--irctc-gray-300)',
+                      borderRadius: '6px', background: 'white', fontSize: '13px',
+                      color: 'var(--irctc-gray-600)', cursor: 'pointer',
+                    }}
+                  >
+                    <Filter size={14} /> View Classes <ChevronDown size={14} style={{ transform: expandedTrain === train._id ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -322,6 +363,58 @@ export default function SearchTrains() {
           </div>
         )}
       </div>
+
+      {/* Route Modal */}
+      {routeModalTrain && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, padding: '20px'
+        }}>
+          <div style={{
+            background: 'white', borderRadius: '12px', width: '100%', maxWidth: '500px',
+            maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column'
+          }}>
+            <div style={{ padding: '20px', borderBottom: '1px solid var(--irctc-gray-200)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--irctc-blue)', color: 'white' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>{routeModalTrain.trainName}</h3>
+                <div style={{ fontSize: '13px', opacity: 0.8 }}>Train Route Schedule</div>
+              </div>
+              <button onClick={() => setRouteModalTrain(null)} style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }}>
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div style={{ padding: '24px', overflowY: 'auto' }}>
+              <div style={{ position: 'relative' }}>
+                <div style={{ position: 'absolute', top: '16px', bottom: '16px', left: '16px', width: '2px', background: 'var(--irctc-gray-300)' }} />
+                
+                {routeModalTrain.route.map((station, index) => (
+                  <div key={index} style={{ display: 'flex', gap: '24px', marginBottom: index !== routeModalTrain.route.length - 1 ? '32px' : 0, position: 'relative' }}>
+                    <div style={{
+                      width: '34px', height: '34px', borderRadius: '50%', background: 'white',
+                      border: `3px solid ${index === 0 ? 'var(--irctc-green)' : index === routeModalTrain.route.length - 1 ? 'var(--irctc-red)' : 'var(--irctc-orange)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1
+                    }}>
+                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: index === 0 ? 'var(--irctc-green)' : index === routeModalTrain.route.length - 1 ? 'var(--irctc-red)' : 'var(--irctc-orange)' }} />
+                    </div>
+                    <div style={{ flex: 1, paddingBottom: '16px', borderBottom: index !== routeModalTrain.route.length - 1 ? '1px solid var(--irctc-gray-100)' : 'none' }}>
+                      <div style={{ fontWeight: 700, fontSize: '16px', color: 'var(--irctc-gray-800)', marginBottom: '4px' }}>
+                        {station.stationName}
+                      </div>
+                      <div style={{ display: 'flex', gap: '24px', fontSize: '13px', color: 'var(--irctc-gray-500)' }}>
+                        <div><span style={{ fontWeight: 600 }}>Arr:</span> {formatDateTime(station.arrivalTime, station.arrivalDay, date)}</div>
+                        <div><span style={{ fontWeight: 600 }}>Dep:</span> {formatDateTime(station.departureTime, station.departureDay, date)}</div>
+                        <div><span style={{ fontWeight: 600 }}>Dist:</span> {station.distanceFromSource} km</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import Train from "../models/train.js";
+import TrainRoute from "../models/trainRoute.js";
 
 // Add Train
 export const addTrain = async (req, res) => {
@@ -8,9 +9,13 @@ export const addTrain = async (req, res) => {
       trainName,
       from,
       to,
+      route,
       departureTime,
       arrivalTime,
       classes,
+      scheduleType,
+      runningDays,
+      runningDates,
     } = req.body;
 
     const train = await Train.create({
@@ -21,24 +26,76 @@ export const addTrain = async (req, res) => {
       departureTime,
       arrivalTime,
       classes,
+      scheduleType,
+      runningDays,
+      runningDates,
     });
+
+    if (route && Array.isArray(route) && route.length > 0) {
+      const routeDocs = route.map((station, index) => ({
+        train: train._id,
+        stationName: station.stationName,
+        arrivalDay: station.arrivalDay || 1,
+        arrivalTime: station.arrivalTime,
+        departureDay: station.departureDay || 1,
+        departureTime: station.departureTime,
+        distanceFromSource: station.distanceFromSource || 0,
+        stationOrder: index + 1
+      }));
+      await TrainRoute.insertMany(routeDocs);
+    }
 
     res.status(201).json({
       success: true,
       train,
     });
   } catch (err) {
+    let errorMessage = "Failed to add train";
+    if (err.code === 11000) errorMessage = "Train number already exists!";
+    else if (err.message) errorMessage = err.message;
     res.status(500).json({
-      message: "Server error",
+      success: false,
+      message: errorMessage,
       error: err.message,
     });
   }
 };
 
+const getJoinedTrains = async () => {
+  const trains = await Train.aggregate([
+    {
+      $lookup: {
+        from: 'trainroutes',
+        localField: '_id',
+        foreignField: 'train',
+        as: 'route'
+      }
+    }
+  ]);
+
+  // Sort routes by stationOrder for each train
+  trains.forEach(t => {
+    if (t.route && t.route.length > 0) {
+      t.route.sort((a, b) => a.stationOrder - b.stationOrder);
+    }
+  });
+
+  return trains;
+};
+
 // Get All Trains
 export const getTrains = async (req, res) => {
   try {
-    const trains = await Train.find({}).lean();
+    const trains = await getJoinedTrains();
+    
+    console.log("=== DEBUG GET TRAINS API ===");
+    console.log(`Total Trains Fetched: ${trains.length}`);
+    trains.forEach(t => {
+      console.log(`Train: ${t.trainName} | Routes Count: ${t.route ? t.route.length : 0}`);
+      if(t.route && t.route.length > 0) {
+        console.log(`  Route Details:`, JSON.stringify(t.route));
+      }
+    });
 
     res.status(200).json({
       success: true,
@@ -46,6 +103,7 @@ export const getTrains = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({
+      success: false,
       message: "Server error",
       error: err.message,
     });
@@ -54,15 +112,54 @@ export const getTrains = async (req, res) => {
 
 // Search Trains
 export const searchTrains = async (req, res) => {
-  const { from, to } = req.query;
+  const { from, to, date } = req.query;
 
   try {
-    const trains = await Train.find({
-      from: { $regex: from, $options: "i" },
-      to: { $regex: to, $options: "i" },
-    }).lean();
+    const allTrains = await getJoinedTrains();
+    
+    const matchedTrains = allTrains.filter(train => {
+      // 1. Verify route order
+      let arrivalDayOffset = 0; // Days to subtract to find origin date (arrivalDay - 1)
+      if (train.route && train.route.length > 0) {
+        const fromIndex = train.route.findIndex(s => s.stationName.toLowerCase().includes(from.toLowerCase()));
+        const toIndex = train.route.findIndex(s => s.stationName.toLowerCase().includes(to.toLowerCase()));
+        if (fromIndex === -1 || toIndex === -1 || fromIndex >= toIndex) {
+          return false;
+        }
+        arrivalDayOffset = (train.route[fromIndex].arrivalDay || 1) - 1;
+      } else {
+        // Fallback
+        if (!(train.from.toLowerCase().includes(from.toLowerCase()) && train.to.toLowerCase().includes(to.toLowerCase()))) {
+          return false;
+        }
+      }
 
-    if (trains.length === 0) {
+      // 2. Schedule Check
+      if (date) {
+        // Find train origin date
+        const userJourneyDate = new Date(date);
+        const originDate = new Date(userJourneyDate);
+        originDate.setDate(originDate.getDate() - arrivalDayOffset);
+        
+        const originDateString = originDate.toISOString().split('T')[0];
+        const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+        const originWeekday = days[originDate.getDay()];
+
+        if (train.scheduleType === 'WEEKLY') {
+          if (!train.runningDays || !train.runningDays.includes(originWeekday)) {
+            return false;
+          }
+        } else if (train.scheduleType === 'SPECIAL') {
+          if (!train.runningDates || !train.runningDates.includes(originDateString)) {
+            return false;
+          }
+        }
+      }
+
+      return true;
+    });
+
+    if (matchedTrains.length === 0) {
       return res.status(404).json({
         message: "No trains found for the specified route",
       });
@@ -70,7 +167,104 @@ export const searchTrains = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      trains,
+      trains: matchedTrains,
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
+
+// Update Train
+export const updateTrain = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      trainNumber,
+      trainName,
+      from,
+      to,
+      route,
+      departureTime,
+      arrivalTime,
+      classes,
+      scheduleType,
+      runningDays,
+      runningDates,
+    } = req.body;
+
+    const train = await Train.findByIdAndUpdate(
+      id,
+      {
+        trainNumber,
+        trainName,
+        from,
+        to,
+        departureTime,
+        arrivalTime,
+        classes,
+        scheduleType,
+        runningDays,
+        runningDates,
+      },
+      { new: true }
+    );
+
+    if (!train) {
+      return res.status(404).json({ message: "Train not found" });
+    }
+
+    // Update routes: delete old, insert new
+    await TrainRoute.deleteMany({ train: id });
+
+    if (route && Array.isArray(route) && route.length > 0) {
+      const routeDocs = route.map((station, index) => ({
+        train: id,
+        stationName: station.stationName,
+        arrivalDay: station.arrivalDay || 1,
+        arrivalTime: station.arrivalTime,
+        departureDay: station.departureDay || 1,
+        departureTime: station.departureTime,
+        distanceFromSource: station.distanceFromSource || 0,
+        stationOrder: index + 1
+      }));
+      await TrainRoute.insertMany(routeDocs);
+    }
+
+    res.status(200).json({
+      success: true,
+      train,
+    });
+  } catch (err) {
+    let errorMessage = "Failed to update train";
+    if (err.code === 11000) errorMessage = "Train number already exists!";
+    else if (err.message) errorMessage = err.message;
+    res.status(500).json({
+      success: false,
+      message: errorMessage,
+      error: err.message,
+    });
+  }
+};
+
+// Delete Train
+export const deleteTrain = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const train = await Train.findByIdAndDelete(id);
+    if (!train) {
+      return res.status(404).json({ message: "Train not found" });
+    }
+
+    // Delete associated routes
+    await TrainRoute.deleteMany({ train: id });
+
+    res.status(200).json({
+      success: true,
+      message: "Train and routes deleted successfully",
     });
   } catch (err) {
     res.status(500).json({
