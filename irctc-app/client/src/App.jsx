@@ -11,6 +11,7 @@ import BookTicket from './pages/BookTicket';
 import MyBookings from './pages/MyBookings';
 import PNRStatus from './pages/PNRStatus';
 import AdminDashboard from './pages/AdminDashboard';
+import TrainSchedule from './pages/TrainSchedule';
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/register"    element={<Register />} />
           <Route path="/search"      element={<SearchTrains />} />
           <Route path="/pnr"         element={<PNRStatus />} />
+          <Route path="/schedule"    element={<TrainSchedule />} />
           <Route path="/book/:trainId" element={
             <ProtectedRoute><BookTicket /></ProtectedRoute>
           } />

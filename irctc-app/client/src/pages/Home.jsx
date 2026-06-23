@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Train, Shield, Clock, Headphones, ChevronRight, Smartphone, CreditCard, Star } from 'lucide-react';
 import StationInput from '../components/StationInput';
+import toast from 'react-hot-toast';
 
 const POPULAR_ROUTES = [
   { from: 'New Delhi', to: 'Mumbai Central' },
@@ -77,7 +78,10 @@ export default function Home() {
           }}>
             <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '2px solid var(--irctc-gray-200)', paddingBottom: '16px' }}>
               {['Book Ticket', 'PNR Status', 'Train Schedule'].map((tab, i) => (
-                <button key={tab} onClick={() => i === 1 && navigate('/pnr')} style={{
+                <button key={tab} onClick={() => {
+                  if (i === 1) navigate('/pnr');
+                  if (i === 2) navigate('/schedule');
+                }} style={{
                   padding: '8px 20px',
                   borderRadius: '6px',
                   border: 'none',
