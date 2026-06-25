@@ -69,10 +69,11 @@ export default function AdminDashboard() {
   });
 
   const [classesData, setClassesData] = useState({
-    general: { totalSeats: 0, price: 0 },
-    ac3: { totalSeats: 0, price: 0 },
-    ac2: { totalSeats: 0, price: 0 },
-    ac1: { totalSeats: 0, price: 0 },
+    general: { coachCount: 0, seatsPerCoach: 90, price: 0 },
+    sleeper: { coachCount: 0, seatsPerCoach: 72, price: 0 },
+    ac3: { coachCount: 0, seatsPerCoach: 64, price: 0 },
+    ac2: { coachCount: 0, seatsPerCoach: 48, price: 0 },
+    ac1: { coachCount: 0, seatsPerCoach: 24, price: 0 },
   });
 
   const [route, setRoute] = useState([]);
@@ -148,26 +149,30 @@ export default function AdminDashboard() {
     setLoading(true);
 
     try {
-      // Build the final classes object mapping totalSeats to availableSeats as well
       const payloadClasses = {
         general: {
-          totalSeats: classesData.general.totalSeats,
-          availableSeats: classesData.general.totalSeats, // Initially all seats are available
+          coachCount: classesData.general.coachCount,
+          seatsPerCoach: classesData.general.seatsPerCoach,
           price: classesData.general.price
         },
+        sleeper: {
+          coachCount: classesData.sleeper.coachCount,
+          seatsPerCoach: classesData.sleeper.seatsPerCoach,
+          price: classesData.sleeper.price
+        },
         ac3: {
-          totalSeats: classesData.ac3.totalSeats,
-          availableSeats: classesData.ac3.totalSeats,
+          coachCount: classesData.ac3.coachCount,
+          seatsPerCoach: classesData.ac3.seatsPerCoach,
           price: classesData.ac3.price
         },
         ac2: {
-          totalSeats: classesData.ac2.totalSeats,
-          availableSeats: classesData.ac2.totalSeats,
+          coachCount: classesData.ac2.coachCount,
+          seatsPerCoach: classesData.ac2.seatsPerCoach,
           price: classesData.ac2.price
         },
         ac1: {
-          totalSeats: classesData.ac1.totalSeats,
-          availableSeats: classesData.ac1.totalSeats,
+          coachCount: classesData.ac1.coachCount,
+          seatsPerCoach: classesData.ac1.seatsPerCoach,
           price: classesData.ac1.price
         }
       };
@@ -209,10 +214,11 @@ export default function AdminDashboard() {
   const resetForm = () => {
     setTrainData({ trainNumber: '', trainName: '', from: '', to: '', departureTime: '', arrivalTime: '' });
     setClassesData({
-      general: { totalSeats: 0, price: 0 },
-      ac3: { totalSeats: 0, price: 0 },
-      ac2: { totalSeats: 0, price: 0 },
-      ac1: { totalSeats: 0, price: 0 },
+      general: { coachCount: 0, seatsPerCoach: 90, price: 0 },
+      sleeper: { coachCount: 0, seatsPerCoach: 72, price: 0 },
+      ac3: { coachCount: 0, seatsPerCoach: 64, price: 0 },
+      ac2: { coachCount: 0, seatsPerCoach: 48, price: 0 },
+      ac1: { coachCount: 0, seatsPerCoach: 24, price: 0 },
     });
     setRoute([]);
     setScheduleType('DAILY');
@@ -233,10 +239,11 @@ export default function AdminDashboard() {
     });
     const cls = train.classes || {};
     setClassesData({
-      general: { totalSeats: cls.general?.totalSeats || 0, price: cls.general?.price || 0 },
-      ac3: { totalSeats: cls.ac3?.totalSeats || 0, price: cls.ac3?.price || 0 },
-      ac2: { totalSeats: cls.ac2?.totalSeats || 0, price: cls.ac2?.price || 0 },
-      ac1: { totalSeats: cls.ac1?.totalSeats || 0, price: cls.ac1?.price || 0 },
+      general: { coachCount: cls.general?.coachCount || 0, seatsPerCoach: cls.general?.seatsPerCoach || 90, price: cls.general?.price || 0 },
+      sleeper: { coachCount: cls.sleeper?.coachCount || 0, seatsPerCoach: cls.sleeper?.seatsPerCoach || 72, price: cls.sleeper?.price || 0 },
+      ac3: { coachCount: cls.ac3?.coachCount || 0, seatsPerCoach: cls.ac3?.seatsPerCoach || 64, price: cls.ac3?.price || 0 },
+      ac2: { coachCount: cls.ac2?.coachCount || 0, seatsPerCoach: cls.ac2?.seatsPerCoach || 48, price: cls.ac2?.price || 0 },
+      ac1: { coachCount: cls.ac1?.coachCount || 0, seatsPerCoach: cls.ac1?.seatsPerCoach || 24, price: cls.ac1?.price || 0 },
     });
     setRoute(train.route || []);
     setScheduleType(train.scheduleType || 'DAILY');
@@ -447,15 +454,20 @@ export default function AdminDashboard() {
                 </h3>
                 
                 <div style={{ display: 'grid', gap: '20px', marginBottom: '32px' }}>
-                  {['general', 'ac3', 'ac2', 'ac1'].map((cls) => (
+                  {['general', 'sleeper', 'ac3', 'ac2', 'ac1'].map((cls) => (
                     <div key={cls} style={{ background: 'var(--irctc-gray-50)', padding: '16px', borderRadius: '8px', border: '1px solid var(--irctc-gray-200)' }}>
                       <div style={{ fontSize: '14px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--irctc-blue)', marginBottom: '12px' }}>
-                        {cls === 'general' ? 'General' : cls.toUpperCase()}
+                        {cls === 'general' ? 'General' : (cls === 'sleeper' ? 'Sleeper (SL)' : cls.toUpperCase())}
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
                         <div>
-                          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--irctc-gray-600)', marginBottom: '4px' }}>Total Seats</label>
-                          <input type="number" min="0" required value={classesData[cls].totalSeats} onChange={(e) => handleClassChange(cls, 'totalSeats', e.target.value)}
+                          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--irctc-gray-600)', marginBottom: '4px' }}>Coach Count</label>
+                          <input type="number" min="0" required value={classesData[cls].coachCount} onChange={(e) => handleClassChange(cls, 'coachCount', e.target.value)}
+                            style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--irctc-gray-300)' }} />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--irctc-gray-600)', marginBottom: '4px' }}>Seats Per Coach</label>
+                          <input type="number" min="0" required value={classesData[cls].seatsPerCoach} onChange={(e) => handleClassChange(cls, 'seatsPerCoach', e.target.value)}
                             style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--irctc-gray-300)' }} />
                         </div>
                         <div>

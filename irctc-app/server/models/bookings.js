@@ -16,7 +16,7 @@ const bookingSchema = new mongoose.Schema({
 
   travelClass: {
     type: String,
-    enum: ["general", "ac3", "ac2", "ac1"],
+    enum: ["general", "sleeper", "ac3", "ac2", "ac1"],
     required: true
   },
 

@@ -51,79 +51,44 @@ const trainSchema = new mongoose.Schema(
 
     classes: {
       general: {
-        totalSeats: {
-          type: Number,
-          required: true,
-        },
-        availableSeats: {
-          type: Number,
-          required: true,
-        },
-        price: {
-          type: Number,
-          required: true,
-        },
-        racCapacity: {
-          type: Number,
-          default: 20,
-        },
+        coachCount: { type: Number, default: 0 },
+        seatsPerCoach: { type: Number, default: 0 },
+        totalSeats: { type: Number, default: 0 },
+        availableSeats: { type: Number, default: 0 },
+        price: { type: Number, required: true },
+        racCapacity: { type: Number, default: 20 },
       },
-
+      sleeper: {
+        coachCount: { type: Number, default: 0 },
+        seatsPerCoach: { type: Number, default: 0 },
+        totalSeats: { type: Number, default: 0 },
+        availableSeats: { type: Number, default: 0 },
+        price: { type: Number, required: true },
+        racCapacity: { type: Number, default: 20 },
+      },
       ac3: {
-        totalSeats: {
-          type: Number,
-          required: true,
-        },
-        availableSeats: {
-          type: Number,
-          required: true,
-        },
-        price: {
-          type: Number,
-          required: true,
-        },
-        racCapacity: {
-          type: Number,
-          default: 20,
-        },
+        coachCount: { type: Number, default: 0 },
+        seatsPerCoach: { type: Number, default: 0 },
+        totalSeats: { type: Number, default: 0 },
+        availableSeats: { type: Number, default: 0 },
+        price: { type: Number, required: true },
+        racCapacity: { type: Number, default: 20 },
       },
-
       ac2: {
-        totalSeats: {
-          type: Number,
-          required: true,
-        },
-        availableSeats: {
-          type: Number,
-          required: true,
-        },
-        price: {
-          type: Number,
-          required: true,
-        },
-        racCapacity: {
-          type: Number,
-          default: 20,
-        },
+        coachCount: { type: Number, default: 0 },
+        seatsPerCoach: { type: Number, default: 0 },
+        totalSeats: { type: Number, default: 0 },
+        availableSeats: { type: Number, default: 0 },
+        price: { type: Number, required: true },
+        racCapacity: { type: Number, default: 20 },
       },
-
       ac1: {
-        totalSeats: {
-          type: Number,
-          required: true,
-        },
-        availableSeats: {
-          type: Number,
-          required: true,
-        },
-        price: {
-          type: Number,
-          required: true,
-        },
-        racCapacity: {
-          type: Number,
-          default: 20,
-        },
+        coachCount: { type: Number, default: 0 },
+        seatsPerCoach: { type: Number, default: 0 },
+        totalSeats: { type: Number, default: 0 },
+        availableSeats: { type: Number, default: 0 },
+        price: { type: Number, required: true },
+        racCapacity: { type: Number, default: 20 },
       },
     },
   },

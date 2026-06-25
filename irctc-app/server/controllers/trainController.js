@@ -20,6 +20,29 @@ export const addTrain = async (req, res) => {
       runningDates,
     } = req.body;
 
+    const calculateSeats = (clsObj) => {
+      if (!clsObj) return undefined;
+      const coachCount = Number(clsObj.coachCount) || 0;
+      const seatsPerCoach = Number(clsObj.seatsPerCoach) || 0;
+      const totalSeats = coachCount * seatsPerCoach;
+      return {
+        coachCount,
+        seatsPerCoach,
+        totalSeats,
+        availableSeats: totalSeats,
+        price: Number(clsObj.price) || 0,
+        racCapacity: Number(clsObj.racCapacity) || 20
+      };
+    };
+
+    const formattedClasses = classes ? {
+      general: calculateSeats(classes.general),
+      sleeper: calculateSeats(classes.sleeper),
+      ac3: calculateSeats(classes.ac3),
+      ac2: calculateSeats(classes.ac2),
+      ac1: calculateSeats(classes.ac1),
+    } : undefined;
+
     const train = await Train.create({
       trainNumber,
       trainName,
@@ -27,7 +50,7 @@ export const addTrain = async (req, res) => {
       to,
       departureTime,
       arrivalTime,
-      classes,
+      classes: formattedClasses,
       scheduleType,
       runningDays,
       runningDates,
@@ -124,24 +147,41 @@ export const searchTrains = async (req, res) => {
     for (const train of allTrains) {
       let arrivalDayOffset = 0;
       let requestedSegments = [];
+      let matchesSearch = false;
 
-      // 1. Verify route order
+      // 1. Verify route order and fallback logic
       if (train.route && train.route.length > 0) {
+        // Sort the route array just in case
+        train.route.sort((a, b) => a.stationOrder - b.stationOrder);
+        
         const fromIndex = train.route.findIndex(s => s.stationName.toLowerCase().includes(from.toLowerCase()));
         const toIndex = train.route.findIndex(s => s.stationName.toLowerCase().includes(to.toLowerCase()));
-        if (fromIndex === -1 || toIndex === -1 || fromIndex >= toIndex) {
-          continue;
-        }
-        arrivalDayOffset = (train.route[fromIndex].arrivalDay || 1) - 1;
-        
-        for (let i = fromIndex; i < toIndex; i++) {
-          requestedSegments.push(i);
+
+        if (fromIndex !== -1 && toIndex !== -1 && fromIndex < toIndex) {
+          // Both found in route
+          matchesSearch = true;
+          arrivalDayOffset = (train.route[fromIndex].arrivalDay || 1) - 1;
+          for (let i = fromIndex; i < toIndex; i++) {
+            requestedSegments.push(i);
+          }
+        } else if (train.from.toLowerCase().includes(from.toLowerCase()) && train.to.toLowerCase().includes(to.toLowerCase())) {
+          // Matches the main source and dest, but they might not be explicitly in the route timeline
+          matchesSearch = true;
+          arrivalDayOffset = 0;
+          for (let i = 0; i < train.route.length; i++) {
+            requestedSegments.push(i);
+          }
         }
       } else {
-        // Fallback
-        if (!(train.from.toLowerCase().includes(from.toLowerCase()) && train.to.toLowerCase().includes(to.toLowerCase()))) {
-          continue;
+        // No intermediate route defined
+        if (train.from.toLowerCase().includes(from.toLowerCase()) && train.to.toLowerCase().includes(to.toLowerCase())) {
+          matchesSearch = true;
+          requestedSegments = [0]; // fallback one main segment
         }
+      }
+
+      if (!matchesSearch) {
+        continue;
       }
 
       // 2. Schedule Check
@@ -267,6 +307,29 @@ export const updateTrain = async (req, res) => {
       runningDates,
     } = req.body;
 
+    const calculateSeats = (clsObj) => {
+      if (!clsObj) return undefined;
+      const coachCount = Number(clsObj.coachCount) || 0;
+      const seatsPerCoach = Number(clsObj.seatsPerCoach) || 0;
+      const totalSeats = coachCount * seatsPerCoach;
+      return {
+        coachCount,
+        seatsPerCoach,
+        totalSeats,
+        availableSeats: totalSeats, // Note: For update, this overrides existing availableSeats. That might be a limitation but matches standard behavior.
+        price: Number(clsObj.price) || 0,
+        racCapacity: Number(clsObj.racCapacity) || 20
+      };
+    };
+
+    const formattedClasses = classes ? {
+      general: calculateSeats(classes.general),
+      sleeper: calculateSeats(classes.sleeper),
+      ac3: calculateSeats(classes.ac3),
+      ac2: calculateSeats(classes.ac2),
+      ac1: calculateSeats(classes.ac1),
+    } : undefined;
+
     const train = await Train.findByIdAndUpdate(
       id,
       {
@@ -276,7 +339,7 @@ export const updateTrain = async (req, res) => {
         to,
         departureTime,
         arrivalTime,
-        classes,
+        classes: formattedClasses,
         scheduleType,
         runningDays,
         runningDates,

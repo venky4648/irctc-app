@@ -5,7 +5,7 @@ import { Train, User, Plus, Trash2, CreditCard, CheckCircle, ArrowLeft } from 'l
 import toast from 'react-hot-toast';
 import { socket } from '../utils/socket';
 
-const CLASS_LABELS = { general: 'General (GN)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
+const CLASS_LABELS = { general: 'General (GN)', sleeper: 'Sleeper (SL)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
 const BERTHS = ['Lower', 'Middle', 'Upper', 'Side Lower', 'Side Upper'];
 
 const emptyPassenger = () => ({ name: '', age: '', gender: 'male', berthPreference: 'Lower' });

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import API from '../utils/api';
 import { Search, Train, CheckCircle, XCircle, Clock, Ticket, Users } from 'lucide-react';
 
-const CLASS_LABELS = { general: 'General (GN)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
+const CLASS_LABELS = { general: 'General (GN)', sleeper: 'Sleeper (SL)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
 
 export default function PNRStatus() {
   const [pnr, setPnr] = useState('');

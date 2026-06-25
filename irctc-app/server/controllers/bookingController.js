@@ -89,7 +89,7 @@ export const checkAvailabilityAndGetAmount = async (req, res) => {
       segmentIndex: { $in: segments }
     }).lean();
 
-    const occupiedSeats = new Set(occupiedRecords.map(r => r.seatNumber));
+    const occupiedSeats = new Set(occupiedRecords.map(r => `${r.coach}-${r.seatNumber}`));
     const availableSeatCount = classData.totalSeats - occupiedSeats.size;
 
     const { currentWl } = await getQueueCounts(trainId, journeyDate, travelClass);
@@ -134,14 +134,12 @@ export const bookTrain = async (req, res) => {
   const session = await mongoose.startSession();
   try {
     let bookingResult;
-    // Attempt transaction if replica set is available. Fallback if not.
     try {
       await session.withTransaction(async () => {
         bookingResult = await processBooking(req, session);
       });
     } catch (txError) {
       if (txError.message.includes("Transaction numbers are only allowed")) {
-        // Fallback to non-transactional if no replica set
         bookingResult = await processBooking(req, null);
       } else {
         throw txError;
@@ -177,35 +175,41 @@ const processBooking = async (req, session) => {
   const occupiedRecords = await SeatOccupancy.find({
     trainId, journeyDate, travelClass, segmentIndex: { $in: segments }
   }).session(session).lean();
-  const occupiedSeats = new Set(occupiedRecords.map(r => r.seatNumber));
+  
+  const occupiedSeats = new Set(occupiedRecords.map(r => `${r.coach}-${r.seatNumber}`));
   const availableSeatCount = classData.totalSeats - occupiedSeats.size;
 
   const { maxWl } = await getQueueCounts(trainId, journeyDate, travelClass, session);
   
   let nextWlNumber = maxWl + 1;
 
-  const allocatedSeats = [];
-  let currentSeatNumber = 1;
-  while (allocatedSeats.length < availableSeatCount && currentSeatNumber <= classData.totalSeats) {
-    if (!occupiedSeats.has(currentSeatNumber)) {
-       allocatedSeats.push(currentSeatNumber);
-    }
-    currentSeatNumber++;
-  }
-
-  const coachSizes = { ac1: 24, ac2: 54, ac3: 72, general: 100 };
-  const coachPrefix = { ac1: "H", ac2: "A", ac3: "B", general: "S" };
-  const coachSize = coachSizes[travelClass] || 72;
+  const coachPrefix = { ac1: "H", ac2: "A", ac3: "B", sleeper: "S", general: "GEN" };
+  const coachSize = classData.seatsPerCoach > 0 ? classData.seatsPerCoach : 72;
   const prefix = coachPrefix[travelClass] || "C";
+
+  const allocatedSeats = [];
+  let currentGlobalSeat = 1;
+  
+  while (allocatedSeats.length < availableSeatCount && currentGlobalSeat <= classData.totalSeats) {
+    const cNum = Math.ceil(currentGlobalSeat / coachSize) || 1;
+    const sNum = currentGlobalSeat % coachSize === 0 ? coachSize : currentGlobalSeat % coachSize;
+    const coachName = `${prefix}${cNum}`;
+    const seatKey = `${coachName}-${sNum}`;
+
+    if (!occupiedSeats.has(seatKey)) {
+       allocatedSeats.push({ coach: coachName, seatNumber: sNum });
+    }
+    currentGlobalSeat++;
+  }
 
   let cnfAllocated = 0;
 
   passengers.forEach(passenger => {
      if (cnfAllocated < availableSeatCount) {
        passenger.status = "CNF";
-       const seatNum = allocatedSeats[cnfAllocated];
-       passenger.seatNumber = seatNum;
-       passenger.coach = `${prefix}${Math.ceil(seatNum / coachSize) || 1}`;
+       const alloc = allocatedSeats[cnfAllocated];
+       passenger.seatNumber = alloc.seatNumber;
+       passenger.coach = alloc.coach;
        cnfAllocated++;
      } else {
        passenger.status = "WL";
@@ -368,9 +372,8 @@ const autoPromote = async (trainId, journeyDate, travelClass, io, session) => {
     train: trainId, journeyDate, travelClass, bookingStatus: "confirmed"
   }).sort({ createdAt: 1 }).session(session);
 
-  const coachSizes = { ac1: 24, ac2: 54, ac3: 72, general: 100 };
-  const coachPrefix = { ac1: "H", ac2: "A", ac3: "B", general: "S" };
-  const coachSize = coachSizes[travelClass] || 72;
+  const coachPrefix = { ac1: "H", ac2: "A", ac3: "B", sleeper: "S", general: "GEN" };
+  const coachSize = classData.seatsPerCoach > 0 ? classData.seatsPerCoach : 72;
   const prefix = coachPrefix[travelClass] || "C";
 
   let nextWl = 1;
@@ -381,26 +384,33 @@ const autoPromote = async (trainId, journeyDate, travelClass, io, session) => {
     
     for (const passenger of booking.passengers) {
       if (passenger.status === "CNF") continue;
+      if (passenger.status === "CANCELLED") continue;
 
       if (passenger.status === "WL") {
         const occupiedRecords = await SeatOccupancy.find({
           trainId, journeyDate, travelClass, segmentIndex: { $in: segments }
         }).session(session).lean();
-        const occupiedSeats = new Set(occupiedRecords.map(r => r.seatNumber));
         
-        let foundSeat = null;
-        for (let s = 1; s <= classData.totalSeats; s++) {
-          if (!occupiedSeats.has(s)) {
-            foundSeat = s;
+        const occupiedSeats = new Set(occupiedRecords.map(r => `${r.coach}-${r.seatNumber}`));
+        
+        let foundAlloc = null;
+        for (let currentGlobalSeat = 1; currentGlobalSeat <= classData.totalSeats; currentGlobalSeat++) {
+          const cNum = Math.ceil(currentGlobalSeat / coachSize) || 1;
+          const sNum = currentGlobalSeat % coachSize === 0 ? coachSize : currentGlobalSeat % coachSize;
+          const coachName = `${prefix}${cNum}`;
+          const seatKey = `${coachName}-${sNum}`;
+
+          if (!occupiedSeats.has(seatKey)) {
+            foundAlloc = { coach: coachName, seatNumber: sNum };
             break;
           }
         }
 
-        if (foundSeat) {
+        if (foundAlloc) {
           // Promote to CNF
           passenger.status = "CNF";
-          passenger.seatNumber = foundSeat;
-          passenger.coach = `${prefix}${Math.ceil(foundSeat / coachSize) || 1}`;
+          passenger.seatNumber = foundAlloc.seatNumber;
+          passenger.coach = foundAlloc.coach;
           passenger.waitingListNumber = undefined;
           bookingUpdated = true;
 

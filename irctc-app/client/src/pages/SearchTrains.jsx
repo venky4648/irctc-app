@@ -7,8 +7,8 @@ import { useAuth } from '../context/AuthContext';
 import StationInput from '../components/StationInput';
 import toast from 'react-hot-toast';
 
-const CLASS_LABELS = { general: 'General (GN)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
-const CLASS_COLORS = { general: '#64748b', ac3: '#2563eb', ac2: '#7c3aed', ac1: '#b45309' };
+const CLASS_LABELS = { general: 'General (GN)', sleeper: 'Sleeper (SL)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
+const CLASS_COLORS = { general: '#64748b', sleeper: '#10b981', ac3: '#2563eb', ac2: '#7c3aed', ac1: '#b45309' };
 
 export default function SearchTrains() {
   const [params] = useSearchParams();
@@ -363,9 +363,12 @@ export default function SearchTrains() {
                           </span>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', fontSize: '12px', color: 'var(--irctc-gray-500)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px', fontSize: '12px', color: 'var(--irctc-gray-500)' }}>
                           <Users size={12} />
                           {msg === 'Available' ? `${displayCount}/${data.totalSeats} seats available` : `${statusStr} ${displayCount}`}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--irctc-gray-400)', marginBottom: '12px', marginLeft: '18px' }}>
+                          Coaches: {data.coachCount || 0}
                         </div>
 
                         <button
