@@ -3,6 +3,7 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import API from '../utils/api';
 import { Train, User, Plus, Trash2, CreditCard, CheckCircle, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { socket } from '../utils/socket';
 
 const CLASS_LABELS = { general: 'General (GN)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
 const BERTHS = ['Lower', 'Middle', 'Upper', 'Side Lower', 'Side Upper'];
@@ -32,7 +33,7 @@ export default function BookTicket() {
   const [upiId, setUpiId] = useState('');
   
   // Real-time Availability State
-  const [availableSeats, setAvailableSeats] = useState(null);
+  const [availabilityInfo, setAvailabilityInfo] = useState(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
 
@@ -76,15 +77,27 @@ export default function BookTicket() {
           journeyDate: searchDate,
           passengers: [] // just to check total available seats
         });
-        setAvailableSeats(data.seatsAvailable);
+        setAvailabilityInfo({ msg: data.statusMsg, count: data.statusCount });
       } catch (err) {
         setAvailabilityError(err.response?.data?.message || 'Failed to check availability');
-        setAvailableSeats(null);
+        setAvailabilityInfo(null);
       } finally {
         setAvailabilityLoading(false);
       }
     };
     checkAvailability();
+
+    const onAvailabilityChanged = (payload) => {
+      if (payload.journeyDate === searchDate && payload.trainId === trainId) {
+        checkAvailability();
+      }
+    };
+
+    socket.on('availabilityChanged', onAvailabilityChanged);
+
+    return () => {
+      socket.off('availabilityChanged', onAvailabilityChanged);
+    };
   }, [train, fromStation, toStation, searchDate, selectedClass, trainId]);
 
   const classData = train?.classes?.[selectedClass];
@@ -296,10 +309,12 @@ export default function BookTicket() {
                       <div style={{ fontWeight: 600, fontSize: '14px' }}>{p.name}</div>
                       <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)' }}>{p.age} yrs · {p.gender} · {p.berthPreference}</div>
                     </div>
-                    {p.coach && p.seatNumber && (
+                    {p.status && (
                       <div style={{ background: 'white', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--irctc-gray-300)', textAlign: 'center' }}>
-                        <div style={{ fontSize: '10px', color: 'var(--irctc-gray-500)', fontWeight: 700, textTransform: 'uppercase' }}>Seat</div>
-                        <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--irctc-blue)' }}>{p.coach}-{p.seatNumber}</div>
+                        <div style={{ fontSize: '10px', color: 'var(--irctc-gray-500)', fontWeight: 700, textTransform: 'uppercase' }}>Status</div>
+                        <div style={{ fontSize: '14px', fontWeight: 800, color: p.status === 'CNF' ? 'var(--irctc-green)' : 'var(--irctc-red)' }}>
+                          {p.status === 'CNF' ? `CNF / ${p.coach}-${p.seatNumber}` : `WL ${p.waitingListNumber}`}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -576,9 +591,9 @@ export default function BookTicket() {
                   <span style={{ color: 'var(--irctc-gray-400)' }}>Calculating...</span>
                 ) : availabilityError ? (
                   <span style={{ color: 'var(--irctc-red)' }}>Error checking</span>
-                ) : availableSeats !== null ? (
-                  <span style={{ color: availableSeats > 10 ? 'var(--irctc-green)' : 'var(--irctc-orange)', fontWeight: 700 }}>
-                    {availableSeats > 0 ? `AVAILABLE - ${availableSeats}` : 'WL / FULL'}
+                ) : availabilityInfo !== null ? (
+                  <span style={{ color: availabilityInfo.msg === 'Available' ? 'var(--irctc-green)' : 'var(--irctc-red)', fontWeight: 700 }}>
+                    {availabilityInfo.msg === 'Available' ? `AVAILABLE - ${availabilityInfo.count}` : `${availabilityInfo.msg} ${availabilityInfo.count}`}
                   </span>
                 ) : (
                   <span style={{ color: 'var(--irctc-gray-400)' }}>-</span>

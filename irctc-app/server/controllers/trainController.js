@@ -1,6 +1,7 @@
 import Train from "../models/train.js";
 import TrainRoute from "../models/trainRoute.js";
 import { SeatOccupancy } from "../models/seatOccupancy.js";
+import { Booking } from "../models/bookings.js";
 
 // Add Train
 export const addTrain = async (req, res) => {
@@ -186,6 +187,33 @@ export const searchTrains = async (req, res) => {
             const availableSeats = data.totalSeats - occupiedSeats.size;
             
             classes[cls].availableSeats = availableSeats;
+
+            const activeBookings = await Booking.find({
+              train: train._id,
+              journeyDate: date,
+              travelClass: cls,
+              bookingStatus: "confirmed"
+            }).lean();
+
+            let maxWl = 0;
+            let currentWl = 0;
+
+            for (const booking of activeBookings) {
+              for (const p of booking.passengers) {
+                if (p.status === "WL") {
+                  currentWl++;
+                  if (p.waitingListNumber > maxWl) maxWl = p.waitingListNumber;
+                }
+              }
+            }
+
+            if (availableSeats > 0) {
+              classes[cls].statusMsg = "Available";
+              classes[cls].statusCount = availableSeats;
+            } else {
+              classes[cls].statusMsg = "WL";
+              classes[cls].statusCount = currentWl;
+            }
           }
         }
       } else if (classes) {
@@ -193,6 +221,8 @@ export const searchTrains = async (req, res) => {
         for (const [cls, data] of Object.entries(classes)) {
            if (data.availableSeats === undefined && data.totalSeats !== undefined) {
              classes[cls].availableSeats = data.totalSeats;
+             classes[cls].statusMsg = "Available";
+             classes[cls].statusCount = data.totalSeats;
            }
         }
       }

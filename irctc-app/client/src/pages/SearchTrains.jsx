@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import API from '../utils/api';
+import { socket } from '../utils/socket';
 import { Train, Clock, ArrowRight, Users, AlertCircle, Filter, ChevronDown, MapPin, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import StationInput from '../components/StationInput';
@@ -55,6 +56,14 @@ export default function SearchTrains() {
   };
 
   useEffect(() => {
+    const onAvailabilityChanged = (payload) => {
+      if (payload.journeyDate === date) {
+        doSearch(from, to, date);
+      }
+    };
+    
+    socket.on('availabilityChanged', onAvailabilityChanged);
+    
     const delayDebounceFn = setTimeout(() => {
       if (from?.trim() && to?.trim()) {
         doSearch(from, to, date);
@@ -64,7 +73,10 @@ export default function SearchTrains() {
       }
     }, 500);
 
-    return () => clearTimeout(delayDebounceFn);
+    return () => {
+      clearTimeout(delayDebounceFn);
+      socket.off('availabilityChanged', onAvailabilityChanged);
+    };
   }, [from, to, date]);
 
   const handleSearch = (e) => {
@@ -83,7 +95,7 @@ export default function SearchTrains() {
 
   const filteredTrains = trains.filter(t => {
     if (selectedClass === 'all') return true;
-    return t.classes[selectedClass]?.availableSeats > 0;
+    return t.classes[selectedClass] && t.classes[selectedClass].totalSeats > 0;
   });
 
   const today = new Date().toISOString().split('T')[0];
@@ -300,7 +312,9 @@ export default function SearchTrains() {
             <div style={{ padding: '12px 24px', background: 'var(--irctc-gray-50)', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {Object.entries(train.classes || {}).map(([cls, data]) => {
                 if (data.totalSeats === 0) return null;
-                const avail = data.availableSeats;
+                const msg = data.statusMsg || 'Available';
+                const count = data.statusCount !== undefined ? data.statusCount : data.availableSeats;
+                const statusStr = msg === 'Available' ? `${count} seats` : `${msg} ${count}`;
                 return (
                   <div key={cls} style={{
                     padding: '5px 12px',
@@ -309,10 +323,9 @@ export default function SearchTrains() {
                     fontSize: '12px',
                     color: CLASS_COLORS[cls],
                     fontWeight: 600,
-                    background: avail === 0 ? 'var(--irctc-gray-100)' : `${CLASS_COLORS[cls]}10`,
-                    opacity: avail === 0 ? 0.6 : 1,
+                    background: `${CLASS_COLORS[cls]}10`,
                   }}>
-                    {CLASS_LABELS[cls]} · {avail > 0 ? `${avail} seats · ₹${data.price}` : 'UNAVAILABLE'}
+                    {CLASS_LABELS[cls]} · {statusStr} · ₹{data.price}
                   </div>
                 );
               })}
@@ -324,17 +337,16 @@ export default function SearchTrains() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
                   {Object.entries(train.classes || {}).map(([cls, data]) => {
                     if (data.totalSeats === 0) return null;
-                    const avail = data.availableSeats;
-                    const pct = (avail / data.totalSeats) * 100;
-                    const status = avail === 0 ? 'NOT AVAILABLE' : avail <= 10 ? 'ALMOST FULL' : 'AVAILABLE';
-                    const statusColor = avail === 0 ? 'var(--irctc-red)' : avail <= 10 ? 'var(--irctc-orange)' : 'var(--irctc-green)';
+                    const msg = data.statusMsg || 'Available';
+                    const displayCount = data.statusCount !== undefined ? data.statusCount : data.availableSeats;
+                    const statusStr = msg === 'Available' ? 'AVAILABLE' : 'WL';
+                    const statusColor = msg === 'Available' ? 'var(--irctc-green)' : 'var(--irctc-red)';
 
                     return (
                       <div key={cls} style={{
-                        border: `2px solid ${avail > 0 ? CLASS_COLORS[cls] : 'var(--irctc-gray-200)'}`,
+                        border: `2px solid ${CLASS_COLORS[cls]}`,
                         borderRadius: '10px', padding: '16px',
-                        opacity: avail === 0 ? 0.6 : 1,
-                        background: avail === 0 ? 'var(--irctc-gray-50)' : 'white',
+                        background: 'white',
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                           <div>
@@ -347,32 +359,27 @@ export default function SearchTrains() {
                             fontSize: '10px', fontWeight: 700,
                             padding: '3px 8px', borderRadius: '4px',
                           }}>
-                            {status}
+                            {statusStr}
                           </span>
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px', fontSize: '12px', color: 'var(--irctc-gray-500)' }}>
                           <Users size={12} />
-                          {avail}/{data.totalSeats} seats available
-                        </div>
-
-                        <div style={{ height: '4px', background: 'var(--irctc-gray-200)', borderRadius: '2px', marginBottom: '14px', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: statusColor, borderRadius: '2px', transition: 'width 0.3s' }} />
+                          {msg === 'Available' ? `${displayCount}/${data.totalSeats} seats available` : `${statusStr} ${displayCount}`}
                         </div>
 
                         <button
-                          disabled={avail === 0}
                           onClick={() => handleBook(train, cls)}
                           style={{
                             width: '100%', padding: '10px',
-                            background: avail === 0 ? 'var(--irctc-gray-200)' : `linear-gradient(135deg, ${CLASS_COLORS[cls]}, ${CLASS_COLORS[cls]}cc)`,
-                            color: avail === 0 ? 'var(--irctc-gray-400)' : 'white',
+                            background: `linear-gradient(135deg, ${CLASS_COLORS[cls]}, ${CLASS_COLORS[cls]}cc)`,
+                            color: 'white',
                             borderRadius: '6px', fontSize: '13px', fontWeight: 700,
-                            cursor: avail === 0 ? 'not-allowed' : 'pointer',
-                            boxShadow: avail === 0 ? 'none' : `0 4px 10px ${CLASS_COLORS[cls]}40`,
+                            cursor: 'pointer',
+                            boxShadow: `0 4px 10px ${CLASS_COLORS[cls]}40`,
                           }}
                         >
-                          {avail === 0 ? 'Not Available' : 'Book Now'}
+                          Book Now
                         </button>
                       </div>
                     );

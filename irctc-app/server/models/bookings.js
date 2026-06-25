@@ -25,6 +25,21 @@ const bookingSchema = new mongoose.Schema({
     unique: true,
   },
 
+  journeyDate: {
+    type: String, // e.g., YYYY-MM-DD
+    required: true,
+  },
+
+  sourceStation: {
+    type: String,
+    required: true,
+  },
+
+  destinationStation: {
+    type: String,
+    required: true,
+  },
+
   passengers: [
     {
       name: { type: String, required: true },
@@ -32,7 +47,14 @@ const bookingSchema = new mongoose.Schema({
       gender: { type: String, required: true },
       berthPreference: { type: String },
       coach: { type: String },
-      seatNumber: { type: Number }
+      seatNumber: { type: Number },
+      status: {
+        type: String,
+        enum: ["CNF", "RAC", "WL", "CANCELLED"],
+        default: "CNF"
+      },
+      racNumber: { type: Number },
+      waitingListNumber: { type: Number }
     },
   ],
 

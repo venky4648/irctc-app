@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import API from '../utils/api';
 import { Train, Ticket, AlertCircle, Calendar, MapPin, Clock, X, CheckCircle, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { socket } from '../utils/socket';
 
 const CLASS_LABELS = { general: 'General (GN)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
 
@@ -15,6 +16,17 @@ export default function MyBookings() {
 
   useEffect(() => {
     fetchBookings();
+
+    const onTicketConfirmed = () => {
+      // Re-fetch bookings when a ticket is confirmed via socket
+      fetchBookings();
+    };
+
+    socket.on('ticketConfirmed', onTicketConfirmed);
+
+    return () => {
+      socket.off('ticketConfirmed', onTicketConfirmed);
+    };
   }, []);
 
   const fetchBookings = async () => {
@@ -35,7 +47,21 @@ export default function MyBookings() {
     try {
       await API.delete(`/bookings/cancel/${id}`);
       toast.success('Booking cancelled successfully. Refund will be processed within 5-7 business days.');
-      setBookings(bookings.filter(b => b._id !== id));
+      fetchBookings();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Cancellation failed');
+    } finally {
+      setCancelling(null);
+    }
+  };
+
+  const handleCancelPassenger = async (bookingId, passengerId) => {
+    if (!window.confirm('Are you sure you want to cancel this passenger? This action cannot be undone.')) return;
+    setCancelling(passengerId);
+    try {
+      await API.delete(`/bookings/cancel/${bookingId}/passenger/${passengerId}`);
+      toast.success('Passenger cancelled successfully.');
+      fetchBookings();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Cancellation failed');
     } finally {
@@ -206,17 +232,54 @@ export default function MyBookings() {
                       <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--irctc-gray-700)', marginBottom: '12px' }}>
                         PASSENGER DETAILS
                       </div>
-                      {booking.passengers?.map((p, i) => (
-                        <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'center', padding: '8px 10px', background: 'white', borderRadius: '6px', marginBottom: '8px' }}>
-                          <div style={{ width: '28px', height: '28px', background: 'var(--irctc-blue-light)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>
-                            {i + 1}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontWeight: 600, fontSize: '13px' }}>{p.name}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--irctc-gray-500)' }}>{p.age} yrs · {p.gender} · {p.berthPreference}</div>
-                          </div>
-                        </div>
-                      ))}
+                      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '8px', background: 'white', borderRadius: '8px', overflow: 'hidden' }}>
+                        <thead>
+                          <tr style={{ background: 'var(--irctc-gray-100)', color: 'var(--irctc-gray-600)', fontSize: '12px', textAlign: 'left' }}>
+                            <th style={{ padding: '10px 12px', fontWeight: 600 }}>Name</th>
+                            <th style={{ padding: '10px 12px', fontWeight: 600 }}>Age/Gender</th>
+                            <th style={{ padding: '10px 12px', fontWeight: 600 }}>Status</th>
+                            <th style={{ padding: '10px 12px', fontWeight: 600 }}>Coach</th>
+                            <th style={{ padding: '10px 12px', fontWeight: 600 }}>Seat</th>
+                            <th style={{ padding: '10px 12px', fontWeight: 600 }}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {booking.passengers?.map((p, i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid var(--irctc-gray-100)', fontSize: '13px' }}>
+                              <td style={{ padding: '10px 12px', fontWeight: 500 }}>{p.name}</td>
+                              <td style={{ padding: '10px 12px', color: 'var(--irctc-gray-500)' }}>{p.age} / {p.gender[0].toUpperCase()}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                <span style={{
+                                  padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700,
+                                  background: p.status === 'CNF' ? 'var(--irctc-green-light)' : (p.status === 'CANCELLED' ? 'var(--irctc-red-light)' : 'var(--irctc-orange-light)'),
+                                  color: p.status === 'CNF' ? 'var(--irctc-green)' : (p.status === 'CANCELLED' ? 'var(--irctc-red)' : 'var(--irctc-orange)')
+                                }}>
+                                  {p.status} {p.status === 'WL' ? p.waitingListNumber : ''}
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 12px', color: 'var(--irctc-gray-600)' }}>{p.coach || '-'}</td>
+                              <td style={{ padding: '10px 12px', color: 'var(--irctc-gray-600)' }}>{p.seatNumber || '-'}</td>
+                              <td style={{ padding: '10px 12px' }}>
+                                {p.status !== 'CANCELLED' && booking.bookingStatus !== 'cancelled' && (
+                                  <button
+                                    onClick={() => handleCancelPassenger(booking._id, p._id)}
+                                    disabled={cancelling === p._id}
+                                    style={{
+                                      padding: '4px 8px', fontSize: '11px', fontWeight: 600,
+                                      color: 'var(--irctc-red)', background: 'transparent',
+                                      border: '1px solid var(--irctc-red)', borderRadius: '4px',
+                                      cursor: cancelling === p._id ? 'not-allowed' : 'pointer',
+                                      opacity: cancelling === p._id ? 0.5 : 1
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                       <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--irctc-gray-500)', display: 'flex', gap: '20px' }}>
                         <span>Payment: <strong style={{ color: booking.paymentStatus === 'completed' ? 'var(--irctc-green)' : 'var(--irctc-orange)' }}>{booking.paymentStatus?.toUpperCase()}</strong></span>
                         {booking.paymentId && <span>Txn ID: <strong>{booking.paymentId}</strong></span>}

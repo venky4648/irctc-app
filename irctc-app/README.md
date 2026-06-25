@@ -7,6 +7,7 @@ A fully-featured, modern clone of the IRCTC Railway Booking System. Built with t
 ## 🌟 Key Features
 
 - **Intelligent Route Search**: Automatically parses complete train routes. Search for any intermediate boarding and destination stations, and the system dynamically finds trains passing through them in the correct order.
+- **Live Train Schedule**: Search for any train by name or number to view a comprehensive visual timeline of its entire route, including exact arrival/departure times, station distances, and days of journey.
 - **Segment-Based Seat Availability**: Seats are dynamically freed up! If a passenger books a seat from Station A to B, the exact same seat becomes available for booking from Station B to C.
 - **Real-Time Booking Engine**: Instant, debounced searching and highly accurate live seat capacity verification before checkout.
 - **Admin Management Portal**: A secure dashboard restricted to administrators to effortlessly add complex multi-day train routes, manage prices, and schedule frequencies (Daily, Weekly, Special).

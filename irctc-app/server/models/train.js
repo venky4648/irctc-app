@@ -63,6 +63,10 @@ const trainSchema = new mongoose.Schema(
           type: Number,
           required: true,
         },
+        racCapacity: {
+          type: Number,
+          default: 20,
+        },
       },
 
       ac3: {
@@ -77,6 +81,10 @@ const trainSchema = new mongoose.Schema(
         price: {
           type: Number,
           required: true,
+        },
+        racCapacity: {
+          type: Number,
+          default: 20,
         },
       },
 
@@ -93,6 +101,10 @@ const trainSchema = new mongoose.Schema(
           type: Number,
           required: true,
         },
+        racCapacity: {
+          type: Number,
+          default: 20,
+        },
       },
 
       ac1: {
@@ -107,6 +119,10 @@ const trainSchema = new mongoose.Schema(
         price: {
           type: Number,
           required: true,
+        },
+        racCapacity: {
+          type: Number,
+          default: 20,
         },
       },
     },
