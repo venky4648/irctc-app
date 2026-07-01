@@ -10,6 +10,9 @@ import authRoutes from './domains/auth/routes/authRoutes.js';
 import bookingRoutes from './domains/booking/routes/bookingRoutes.js';
 import networkRoutes from './domains/network/routes/networkRoutes.js';
 import fleetRoutes from './domains/fleet/routes/fleetRoutes.js';
+import paymentRoutes from './domains/payment/routes/paymentRoutes.js';
+import adminRoutes from './domains/admin/routes/adminRoutes.js';
+import analyticsRoutes from './domains/analytics/routes/analyticsRoutes.js';
 import seedRoutes from './routes/seedRoutes.js';
 
 dotenv.config();
@@ -53,6 +56,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/network', networkRoutes);
 app.use('/api/fleet', fleetRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/analytics', analyticsRoutes);
 app.use('/api/seed', seedRoutes);
 
 
