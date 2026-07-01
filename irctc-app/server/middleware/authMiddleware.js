@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
+import { pool } from "../config/db.js";
 
 export const protect = async (req, res, next) => {
   let token;
@@ -8,7 +8,13 @@ export const protect = async (req, res, next) => {
     try {
       token = req.headers.authorization.split(" ")[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = await User.findById(decoded.id).select("-password");
+      
+      const result = await pool.query("SELECT id, username, email, mobile_number, status FROM users WHERE id = $1", [decoded.id]);
+      if (result.rows.length === 0) {
+        return res.status(401).json({ message: "Not authorized, user not found" });
+      }
+
+      req.user = result.rows[0];
       return next();
     } catch (error) {
       console.error(error);
@@ -20,6 +26,8 @@ export const protect = async (req, res, next) => {
 };
 
 export const isAdmin = (req, res, next) => {
+  // Assuming user_roles table or a simple role mechanism is implemented
+  // For now, if role is stored in user object or checked here
   if (req.user && req.user.role === "admin") {
     next();
   } else {
