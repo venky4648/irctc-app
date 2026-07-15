@@ -14,8 +14,7 @@ router.use(isAdmin);
 const controllers = {
     'analytics': AnalyticsController,
     'dashboard': DashboardController,
-    'reports': ReportController,
-    'metrics': MetricsController
+    'reports': ReportController
 };
 
 for (const [route, controller] of Object.entries(controllers)) {
@@ -26,9 +25,11 @@ for (const [route, controller] of Object.entries(controllers)) {
     router.delete(`/${route}/:id`, controller.remove);
 }
 
-// Custom requested routes
-router.post('/reports/generate', ReportController.create); // Handled by generic
+// Specific Routes
+router.get('/metrics/dashboard', MetricsController.getDashboardMetrics);
+router.post('/reports/generate', ReportController.create); 
 router.post('/reports/schedule', ReportController.create);
-router.post('/refresh-materialized-views', AnalyticsController.create); // dummy mapping
+router.post('/refresh-materialized-views', AnalyticsController.create); 
 
 export default router;
+

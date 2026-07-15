@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import API from '../utils/api';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { bookingApi } from '../api/bookingApi';
 import { Train, User, Plus, Trash2, CreditCard, CheckCircle, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { socket } from '../utils/socket';
@@ -11,20 +11,20 @@ const BERTHS = ['Lower', 'Middle', 'Upper', 'Side Lower', 'Side Upper'];
 const emptyPassenger = () => ({ name: '', age: '', gender: 'male', berthPreference: 'Lower' });
 
 export default function BookTicket() {
-  const { trainId } = useParams();
-  const [params] = useSearchParams();
+  const { state } = useLocation();
   const navigate = useNavigate();
 
-  const selectedClass = params.get('class') || 'ac3';
-  const paramFrom = params.get('from') || '';
-  const paramTo = params.get('to') || '';
-  const searchDate = params.get('date') || new Date().toISOString().split('T')[0];
+  const searchResult = state?.searchResult || null;
+  const selectedClass = state?.selectedClass || 'ac3';
+  const paramFrom = state?.passengersFrom || '';
+  const paramTo = state?.passengersTo || '';
+  const searchDate = state?.journeyDate || new Date().toISOString().split('T')[0];
 
-  const [train, setTrain] = useState(null);
-  const fromStation = paramFrom || train?.from || '';
-  const toStation = paramTo || train?.to || '';
+  const train = searchResult;
+  const fromStation = paramFrom || 'N/A';
+  const toStation = paramTo || 'N/A';
   
-  const [loading, setLoading] = useState(true);
+  const loading = false;
   const [passengers, setPassengers] = useState([emptyPassenger()]);
   const [step, setStep] = useState(1); // 1: passengers, 2: payment, 3: confirm
   const [paymentMethod, setPaymentMethod] = useState('upi');
@@ -36,69 +36,6 @@ export default function BookTicket() {
   const [availabilityInfo, setAvailabilityInfo] = useState(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
-
-  useEffect(() => {
-    const fetchTrains = async () => {
-      try {
-        const { data } = await API.get('/trains/all');
-        let found = data.trains?.find(t => t._id === trainId);
-        if (found && !found.classes && found.seatAvailable !== undefined) {
-          found = {
-            ...found,
-            classes: {
-              general: {
-                totalSeats: found.seatAvailable,
-                price: found.price || 0
-              }
-            }
-          };
-        }
-        setTrain(found);
-      } catch (err) {
-        toast.error('Failed to load train details');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchTrains();
-  }, [trainId]);
-
-  useEffect(() => {
-    const checkAvailability = async () => {
-      if (!train || !fromStation || !toStation || !searchDate) return;
-      setAvailabilityLoading(true);
-      setAvailabilityError('');
-      try {
-        const { data } = await API.post('/bookings/check-availability', {
-          trainId,
-          travelClass: selectedClass,
-          source: fromStation,
-          destination: toStation,
-          journeyDate: searchDate,
-          passengers: [] // just to check total available seats
-        });
-        setAvailabilityInfo({ msg: data.statusMsg, count: data.statusCount });
-      } catch (err) {
-        setAvailabilityError(err.response?.data?.message || 'Failed to check availability');
-        setAvailabilityInfo(null);
-      } finally {
-        setAvailabilityLoading(false);
-      }
-    };
-    checkAvailability();
-
-    const onAvailabilityChanged = (payload) => {
-      if (payload.journeyDate === searchDate && payload.trainId === trainId) {
-        checkAvailability();
-      }
-    };
-
-    socket.on('availabilityChanged', onAvailabilityChanged);
-
-    return () => {
-      socket.off('availabilityChanged', onAvailabilityChanged);
-    };
-  }, [train, fromStation, toStation, searchDate, selectedClass, trainId]);
 
   const classData = train?.classes?.[selectedClass];
   const price = classData?.price || 0;
@@ -121,29 +58,14 @@ export default function BookTicket() {
     return `${baseDate.toLocaleDateString('en-IN', options)}, ${formatTime12hr(time)}`;
   };
 
-  let journeyFrom = train?.from;
-  let journeyTo = train?.to;
-  let journeyDep = train?.departureTime;
-  let journeyArr = train?.arrivalTime;
+  let journeyFrom = train?.fromStation?.name || train?.from;
+  let journeyTo = train?.toStation?.name || train?.to;
+  let journeyDep = train?.fromStation?.departureTime || train?.departureTime;
+  let journeyArr = train?.toStation?.arrivalTime || train?.arrivalTime;
 
   let journeyDepDay = 1;
   let journeyArrDay = 1;
-
   let arrivalDayOffset = 0;
-
-  if (train?.route && train.route.length > 0 && fromStation && toStation) {
-    const fromStationObj = train.route.find(s => s.stationName.toLowerCase().includes(fromStation.toLowerCase()));
-    const toStationObj = train.route.find(s => s.stationName.toLowerCase().includes(toStation.toLowerCase()));
-    if (fromStationObj && toStationObj) {
-      journeyFrom = fromStationObj.stationName;
-      journeyTo = toStationObj.stationName;
-      journeyDep = fromStationObj.departureTime;
-      journeyArr = toStationObj.arrivalTime;
-      journeyDepDay = fromStationObj.departureDay || 1;
-      journeyArrDay = toStationObj.arrivalDay || 1;
-      arrivalDayOffset = (fromStationObj.arrivalDay || 1) - 1;
-    }
-  }
 
   let isScheduleValid = true;
   if (train && searchDate) {
@@ -211,14 +133,16 @@ export default function BookTicket() {
   const handleBook = async () => {
     setBookingLoading(true);
     try {
-      const { data } = await API.post('/bookings/book', {
-        trainId,
-        passengers: passengers.map(p => ({ ...p, age: Number(p.age) })),
-        travelClass: selectedClass,
-        source: fromStation,
-        destination: toStation,
-        journeyDate: searchDate
-      });
+      const payload = {
+        train_run_id: train?.trainRunId, 
+        from_station_id: train?.fromStation?.id, 
+        to_station_id: train?.toStation?.id, 
+        journey_date: searchDate,
+        class_id: selectedClass, 
+        quota_id: "GN", 
+        passengers: passengers.map(p => ({ ...p, age: Number(p.age) }))
+      };
+      const { data } = await bookingApi.bookTicket(payload);
       setBooking(data);
       setStep(3);
       toast.success('Booking confirmed!');

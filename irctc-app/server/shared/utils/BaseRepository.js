@@ -1,5 +1,5 @@
-import { pool } from "../db.js";
-import { buildQueryOptions } from "../queryBuilder.js";
+import { pool } from "./db.js";
+import { buildQueryOptions } from "./queryBuilder.js";
 
 export class BaseRepository {
     constructor(tableName) {

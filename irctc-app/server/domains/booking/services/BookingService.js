@@ -1,10 +1,12 @@
 import { pool } from "../../../shared/utils/db.js";
 import { logger } from "../../../shared/utils/logger.js";
 import PNRService from "./PNRService.js";
+import eventBus from "../../../shared/events/EventBus.js";
 import PNRRepository from "../repositories/PNRRepository.js";
 import PassengerRepository from "../repositories/PassengerRepository.js";
 import InventoryRepository from "../../inventory/repositories/InventoryRepository.js";
 import SeatRepository from "../../inventory/repositories/SeatRepository.js";
+import ScheduleRepository from "../../fleet/repositories/ScheduleRepository.js";
 
 class BookingService {
     async createBooking(user, bookingData) {
@@ -49,8 +51,19 @@ class BookingService {
             // 6. Generate PNR
             const pnrNumber = PNRService.generatePNR();
 
-            // 7. Create PNR
-            const totalFare = passengers.length * 1000; // Mock calculation
+            // 7. Calculate Fare dynamically based on distance
+            const fromSchedule = await ScheduleRepository.findById(trainRun.train_id, from_station_id);
+            const toSchedule = await ScheduleRepository.findById(trainRun.train_id, to_station_id);
+            
+            let totalFare = passengers.length * 1000; // Fallback
+            if (fromSchedule && toSchedule) {
+                const distance = Math.abs(toSchedule.distance_from_origin - fromSchedule.distance_from_origin);
+                // Base calculation: Distance * 1.5 multiplier + 50 base charge
+                const baseFare = Math.max(distance * 1.5, 50);
+                // In a real system, we'd apply class multiplier (e.g., 1A=3x, 2A=2x, SL=1x)
+                totalFare = passengers.length * baseFare;
+            }
+
             const pnr = await PNRRepository.createPNR(client, {
                 pnr_number: pnrNumber,
                 user_id: user.id,
@@ -89,6 +102,16 @@ class BookingService {
 
             await client.query("COMMIT");
             logger.info("Booking Confirmed", { pnrNumber, userId: user.id });
+
+            eventBus.emit('BOOKING_CONFIRMED', {
+                userId: user.id,
+                email: user.email,
+                pnr: pnrNumber,
+                trainName: "IRCTC Train",
+                trainNumber: train_run_id,
+                from: from_station_id,
+                to: to_station_id
+            });
 
             return {
                 pnr: pnr.pnr_number,

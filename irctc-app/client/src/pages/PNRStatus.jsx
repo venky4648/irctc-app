@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import API from '../utils/api';
+import { bookingApi } from '../api/bookingApi';
 import { Search, Train, CheckCircle, XCircle, Clock, Ticket, Users } from 'lucide-react';
 
 const CLASS_LABELS = { general: 'General (GN)', sleeper: 'Sleeper (SL)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
@@ -15,8 +15,8 @@ export default function PNRStatus() {
     if (!pnr.trim()) return;
     setLoading(true); setError(''); setResult(null);
     try {
-      const { data } = await API.get(`/bookings/pnr/${pnr.trim()}`);
-      setResult(data.bookingDetails);
+      const { data } = await bookingApi.getPNRStatus(pnr.trim());
+      setResult(data.data || data.bookingDetails || data);
     } catch (err) {
       setError(err.response?.data?.message || 'PNR not found');
     } finally {

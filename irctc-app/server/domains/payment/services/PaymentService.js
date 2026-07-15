@@ -113,6 +113,31 @@ class PaymentService {
         }
         return payment;
     }
+
+    calculateDynamicFare(baseFare, distanceKm, classCode, quotaCode, availableSeats, totalSeats) {
+        let finalFare = baseFare;
+
+        // 1. Distance Multiplier (simulated)
+        if (distanceKm > 500) finalFare += (distanceKm - 500) * 1.5;
+
+        // 2. Class Multiplier
+        const classMultipliers = { '1A': 4, '2A': 2.5, '3A': 1.8, 'CC': 1.5, 'SL': 1.0, '2S': 0.6 };
+        finalFare *= (classMultipliers[classCode] || 1.0);
+
+        // 3. Quota Premium
+        if (quotaCode === 'TQ') finalFare *= 1.3; // Tatkal premium
+
+        // 4. Dynamic Surge (if less than 20% seats available)
+        const occupancy = (totalSeats - availableSeats) / totalSeats;
+        if (occupancy > 0.8) {
+            finalFare *= 1.15; // 15% surge
+        }
+
+        // 5. Taxes (5% GST)
+        finalFare *= 1.05;
+
+        return Math.round(finalFare);
+    }
 }
 
 export default new PaymentService();

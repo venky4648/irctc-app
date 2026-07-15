@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import API from '../utils/api';
+import { bookingApi } from '../api/bookingApi';
 import { Train, Ticket, AlertCircle, Calendar, MapPin, Clock, X, CheckCircle, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { socket } from '../utils/socket';
@@ -32,8 +32,8 @@ export default function MyBookings() {
   const fetchBookings = async () => {
     setLoading(true);
     try {
-      const { data } = await API.get('/bookings/my-bookings');
-      setBookings(data.bookings || []);
+      const { data } = await bookingApi.getMyBookings();
+      setBookings(data.data || data.bookings || []);
     } catch (err) {
       toast.error('Failed to load bookings');
     } finally {
@@ -45,7 +45,7 @@ export default function MyBookings() {
     if (!window.confirm('Are you sure you want to cancel this booking? This action cannot be undone.')) return;
     setCancelling(id);
     try {
-      await API.delete(`/bookings/cancel/${id}`);
+      await bookingApi.cancelBooking(id);
       toast.success('Booking cancelled successfully. Refund will be processed within 5-7 business days.');
       fetchBookings();
     } catch (err) {
@@ -59,7 +59,7 @@ export default function MyBookings() {
     if (!window.confirm('Are you sure you want to cancel this passenger? This action cannot be undone.')) return;
     setCancelling(passengerId);
     try {
-      await API.delete(`/bookings/cancel/${bookingId}/passenger/${passengerId}`);
+      await bookingApi.cancelPassenger(bookingId, passengerId);
       toast.success('Passenger cancelled successfully.');
       fetchBookings();
     } catch (err) {
@@ -114,10 +114,10 @@ export default function MyBookings() {
         ) : (
           bookings.map(booking => {
             const status = statusConfig[booking.bookingStatus] || statusConfig.pending;
-            const isExpanded = expandedBooking === booking._id;
+            const isExpanded = expandedBooking === booking.id;
 
             return (
-              <div key={booking._id} style={{
+              <div key={booking.id} style={{
                 background: 'white', borderRadius: '12px',
                 boxShadow: 'var(--shadow-sm)', border: '1px solid var(--irctc-gray-200)',
                 marginBottom: '16px', overflow: 'hidden',
@@ -196,7 +196,7 @@ export default function MyBookings() {
 
                   {/* Expand / actions */}
                   <div style={{ display: 'flex', gap: '10px', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--irctc-gray-100)' }}>
-                    <button onClick={() => setExpandedBooking(isExpanded ? null : booking._id)} style={{
+                    <button onClick={() => setExpandedBooking(isExpanded ? null : booking.id)} style={{
                       padding: '8px 16px', border: '1px solid var(--irctc-gray-300)',
                       borderRadius: '6px', background: 'white',
                       fontSize: '13px', fontWeight: 600, color: 'var(--irctc-gray-700)', cursor: 'pointer',
@@ -206,8 +206,8 @@ export default function MyBookings() {
 
                     {booking.bookingStatus === 'confirmed' && (
                       <button
-                        onClick={() => handleCancel(booking._id)}
-                        disabled={cancelling === booking._id}
+                        onClick={() => handleCancel(booking.id)}
+                        disabled={cancelling === booking.id}
                         style={{
                           padding: '8px 16px',
                           border: '1px solid var(--irctc-red)',
@@ -215,13 +215,13 @@ export default function MyBookings() {
                           background: 'white',
                           fontSize: '13px', fontWeight: 600,
                           color: 'var(--irctc-red)',
-                          cursor: cancelling === booking._id ? 'not-allowed' : 'pointer',
+                          cursor: cancelling === booking.id ? 'not-allowed' : 'pointer',
                           display: 'flex', alignItems: 'center', gap: '6px',
-                          opacity: cancelling === booking._id ? 0.7 : 1,
+                          opacity: cancelling === booking.id ? 0.7 : 1,
                         }}
                       >
                         <X size={13} />
-                        {cancelling === booking._id ? 'Cancelling...' : 'Cancel Ticket'}
+                        {cancelling === booking.id ? 'Cancelling...' : 'Cancel Ticket'}
                       </button>
                     )}
                   </div>
@@ -262,14 +262,14 @@ export default function MyBookings() {
                               <td style={{ padding: '10px 12px' }}>
                                 {p.status !== 'CANCELLED' && booking.bookingStatus !== 'cancelled' && (
                                   <button
-                                    onClick={() => handleCancelPassenger(booking._id, p._id)}
-                                    disabled={cancelling === p._id}
+                                    onClick={() => handleCancelPassenger(booking.id, p.id)}
+                                    disabled={cancelling === p.id}
                                     style={{
                                       padding: '4px 8px', fontSize: '11px', fontWeight: 600,
                                       color: 'var(--irctc-red)', background: 'transparent',
                                       border: '1px solid var(--irctc-red)', borderRadius: '4px',
-                                      cursor: cancelling === p._id ? 'not-allowed' : 'pointer',
-                                      opacity: cancelling === p._id ? 0.5 : 1
+                                      cursor: cancelling === p.id ? 'not-allowed' : 'pointer',
+                                      opacity: cancelling === p.id ? 0.5 : 1
                                     }}
                                   >
                                     Cancel

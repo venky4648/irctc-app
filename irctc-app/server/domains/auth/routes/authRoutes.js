@@ -6,7 +6,8 @@ import {
   updateMyProfile,
   updateUserProfile,
   deleteUser,
-  getAllUsersByAdmin
+  getAllUsersByAdmin,
+  updateUserRole
 } from "../controllers/AuthController.js";
 import { protect, isAdmin } from "../../../shared/middleware/authMiddleware.js";
 
@@ -22,6 +23,7 @@ router.put("/profile", protect, updateMyProfile);
 
 // Protected routes (Admin)
 router.put("/:id", protect, isAdmin, updateUserProfile);
+router.put("/:id/role", protect, isAdmin, updateUserRole);
 router.delete("/:id", protect, isAdmin, deleteUser);
 router.get("/", protect, isAdmin, getAllUsersByAdmin);
 

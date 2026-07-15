@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import API from '../utils/api';
+import { createContext, useContext, useState } from 'react';
+import { authApi } from '../api/authApi';
 
 const AuthContext = createContext(null);
 
@@ -16,7 +16,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     setLoading(true);
     try {
-      const { data } = await API.post('/auth/login', { email, password });
+      const { data } = await authApi.login({ email, password });
       localStorage.setItem('irctc_token', data.token);
       localStorage.setItem('irctc_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -32,7 +32,7 @@ export const AuthProvider = ({ children }) => {
   const register = async (formData) => {
     setLoading(true);
     try {
-      const { data } = await API.post('/auth/register', formData);
+      const { data } = await authApi.register(formData);
       localStorage.setItem('irctc_token', data.token);
       localStorage.setItem('irctc_user', JSON.stringify(data.user));
       setToken(data.token);

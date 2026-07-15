@@ -1,11 +1,23 @@
-import { BaseService } from "../../../shared/utils/BaseService.js";
 import MetricsRepository from "../repositories/MetricsRepository.js";
 
-class MetricsService extends BaseService {
-    constructor() {
-        super(MetricsRepository);
+class MetricsService {
+    async getDashboardMetrics() {
+        const today = new Date().toISOString().split('T')[0];
+        
+        const [dailyRevenue, activeBookings, systemLoad] = await Promise.all([
+            MetricsRepository.getDailyRevenue(today),
+            MetricsRepository.getActiveBookingsCount(),
+            MetricsRepository.getSystemLoad()
+        ]);
+
+        return {
+            date: today,
+            dailyRevenue,
+            activeBookings,
+            systemLoad,
+            status: 'HEALTHY'
+        };
     }
-    // Add business logic here
 }
 
 export default new MetricsService();

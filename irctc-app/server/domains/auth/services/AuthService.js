@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import UserRepository from "../repositories/UserRepository.js";
+import eventBus from "../../../shared/events/EventBus.js";
 
 class AuthService {
     generateToken(id) {
@@ -44,6 +45,8 @@ class AuthService {
         const user = await UserRepository.createUser(name, email, phone, hashedPassword);
         const token = this.generateToken(user.id);
 
+        eventBus.emit('USER_REGISTERED', { user });
+
         return { user, token };
     }
 
@@ -70,7 +73,8 @@ class AuthService {
                 name: user.username,
                 email: user.email,
                 phone: user.mobile_number,
-                status: user.status
+                status: user.status,
+                role: user.role ? user.role.toLowerCase() : 'user'
             },
             token
         };
@@ -88,7 +92,8 @@ class AuthService {
             name: user.username,
             email: user.email,
             phone: user.mobile_number,
-            status: user.status
+            status: user.status,
+            role: user.role ? user.role.toLowerCase() : 'user'
         };
     }
 
@@ -130,6 +135,15 @@ class AuthService {
 
     async getAllUsers() {
         return await UserRepository.findAll();
+    }
+    async updateRole(userId, roleCode) {
+        if (roleCode !== 'ADMIN' && roleCode !== 'PASSENGER') {
+            const err = new Error("Invalid role");
+            err.statusCode = 400;
+            throw err;
+        }
+        const updatedRole = await UserRepository.updateUserRole(userId, roleCode);
+        return updatedRole;
     }
 }
 

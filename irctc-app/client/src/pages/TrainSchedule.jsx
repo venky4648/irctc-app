@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Train, Search, Clock, MapPin, Navigation, Calendar, Activity } from 'lucide-react';
-import API from '../utils/api';
+import { useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 export default function TrainSchedule() {
@@ -10,19 +10,14 @@ export default function TrainSchedule() {
   const [selectedTrain, setSelectedTrain] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const { state } = useLocation();
+
   useEffect(() => {
-    const fetchTrains = async () => {
-      try {
-        const { data } = await API.get('/trains/all');
-        setTrains(data.trains || []);
-      } catch (err) {
-        toast.error('Failed to load train schedules');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchTrains();
-  }, []);
+    if (state?.searchResult) {
+      setSelectedTrain(state.searchResult);
+    }
+    setLoading(false);
+  }, [state]);
 
   const handleSearch = (e) => {
     const query = e.target.value;
@@ -35,8 +30,8 @@ export default function TrainSchedule() {
 
     const q = query.toLowerCase();
     const results = trains.filter(t => 
-      t.trainNumber.toLowerCase().includes(q) || 
-      t.trainName.toLowerCase().includes(q)
+      (t.train_number && t.train_number.toLowerCase().includes(q)) || 
+      (t.name && t.name.toLowerCase().includes(q))
     );
     setFilteredTrains(results);
   };
@@ -91,7 +86,7 @@ export default function TrainSchedule() {
             <div style={{ position: 'absolute', top: '100%', left: '24px', right: '24px', background: 'white', borderRadius: '12px', boxShadow: 'var(--shadow-lg)', zIndex: 10, marginTop: '8px', maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--irctc-gray-200)' }}>
               {filteredTrains.map((train, idx) => (
                 <div 
-                  key={train._id} 
+                  key={train.id} 
                   onClick={() => handleSelectTrain(train)}
                   style={{ 
                     padding: '16px', 
@@ -104,12 +99,12 @@ export default function TrainSchedule() {
                   onMouseLeave={e => e.currentTarget.style.background = 'white'}
                 >
                   <div style={{ background: 'var(--irctc-orange-light)', color: 'white', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: 700 }}>
-                    {train.trainNumber}
+                    {train.train_number}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, color: 'var(--irctc-gray-800)', fontSize: '15px' }}>{train.trainName}</div>
+                    <div style={{ fontWeight: 600, color: 'var(--irctc-gray-800)', fontSize: '15px' }}>{train.name}</div>
                     <div style={{ fontSize: '13px', color: 'var(--irctc-gray-500)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <MapPin size={12} /> {train.from} → {train.to}
+                      Status: {train.status}
                     </div>
                   </div>
                 </div>
@@ -126,17 +121,12 @@ export default function TrainSchedule() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
                 <div>
                   <div style={{ display: 'inline-block', background: 'var(--irctc-orange)', padding: '6px 12px', borderRadius: '8px', fontWeight: 700, fontSize: '14px', marginBottom: '12px' }}>
-                    {selectedTrain.trainNumber}
+                    {selectedTrain.train_number}
                   </div>
-                  <h2 style={{ fontSize: '24px', fontWeight: 800, marginBottom: '8px' }}>{selectedTrain.trainName}</h2>
+                  <h2 style={{ fontSize: '24px', fontWeight: 800, marginBottom: '8px' }}>{selectedTrain.name}</h2>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MapPin size={14} /> {selectedTrain.from} to {selectedTrain.to}</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Calendar size={14} /> Runs: {selectedTrain.scheduleType}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>Status: {selectedTrain.status}</span>
                   </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '28px', fontWeight: 800 }}>{formatTime12hr(selectedTrain.departureTime)}</div>
-                  <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '13px', fontWeight: 500 }}>Departure</div>
                 </div>
               </div>
             </div>
@@ -147,49 +137,11 @@ export default function TrainSchedule() {
                 <Navigation size={18} color="var(--irctc-orange)" /> Route Map
               </h3>
 
-              {!selectedTrain.route || selectedTrain.route.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', background: 'var(--irctc-gray-50)', borderRadius: '12px' }}>
-                  <Clock size={32} color="var(--irctc-gray-400)" style={{ margin: '0 auto 12px' }} />
-                  <div style={{ fontSize: '15px', color: 'var(--irctc-gray-600)', fontWeight: 500 }}>Detailed route map is not available for this train yet.</div>
-                  <div style={{ fontSize: '13px', color: 'var(--irctc-gray-500)', marginTop: '4px' }}>It travels from {selectedTrain.from} directly to {selectedTrain.to}.</div>
-                </div>
-              ) : (
-                <div style={{ position: 'relative' }}>
-                  {/* Vertical Line */}
-                  <div style={{ position: 'absolute', top: '16px', bottom: '16px', left: '23px', width: '2px', background: 'var(--irctc-gray-200)', zIndex: 0 }} />
-                  
-                  {selectedTrain.route.map((station, index) => (
-                    <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: '20px', marginBottom: index === selectedTrain.route.length - 1 ? 0 : '32px', position: 'relative', zIndex: 1 }}>
-                      {/* Node */}
-                      <div style={{ width: '48px', flexShrink: 0, textAlign: 'center', paddingTop: '4px' }}>
-                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: index === 0 ? 'var(--irctc-green)' : index === selectedTrain.route.length - 1 ? 'var(--irctc-red)' : 'white', border: `3px solid ${index === 0 ? 'var(--irctc-green)' : index === selectedTrain.route.length - 1 ? 'var(--irctc-red)' : 'var(--irctc-orange)'}`, margin: '0 auto' }} />
-                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--irctc-gray-500)', marginTop: '8px' }}>Day {station.arrivalDay || 1}</div>
-                      </div>
-
-                      {/* Content */}
-                      <div style={{ flex: 1, background: 'var(--irctc-gray-50)', padding: '16px', borderRadius: '12px', border: '1px solid var(--irctc-gray-200)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                          <div>
-                            <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--irctc-gray-800)' }}>{station.stationName}</div>
-                            <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)', marginTop: '4px' }}>Distance: {station.distanceFromSource} km</div>
-                          </div>
-                        </div>
-                        
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid var(--irctc-gray-100)' }}>
-                          <div>
-                            <div style={{ fontSize: '11px', color: 'var(--irctc-gray-400)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Arrival</div>
-                            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--irctc-gray-800)' }}>{formatTime12hr(station.arrivalTime)}</div>
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '11px', color: 'var(--irctc-gray-400)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Departure</div>
-                            <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--irctc-gray-800)' }}>{formatTime12hr(station.departureTime)}</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div style={{ textAlign: 'center', padding: '40px', background: 'var(--irctc-gray-50)', borderRadius: '12px' }}>
+                <Clock size={32} color="var(--irctc-gray-400)" style={{ margin: '0 auto 12px' }} />
+                <div style={{ fontSize: '15px', color: 'var(--irctc-gray-600)', fontWeight: 500 }}>Detailed route map is separated into Schedule Domain.</div>
+                <div style={{ fontSize: '13px', color: 'var(--irctc-gray-500)', marginTop: '4px' }}>Train information from Fleet domain does not include schedule.</div>
+              </div>
             </div>
           </div>
         )}

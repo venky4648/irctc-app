@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MapPin } from 'lucide-react';
 
-import API from '../utils/api';
+import { networkApi } from '../api/networkApi';
 
 let cachedStations = null;
 
@@ -14,15 +14,15 @@ export default function StationInput({ value, onChange, placeholder, style, onFo
   // Fetch unique stations from the backend
   useEffect(() => {
     if (!cachedStations) {
-      API.get('/trains/all').then(res => {
+      networkApi.searchStations().then(res => {
         const uniqueStations = new Set();
         const normalize = (s) => {
           if (!s) return "";
           return s.trim().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
         };
-        res.data.trains.forEach(t => {
-          if (t.from) uniqueStations.add(normalize(t.from));
-          if (t.to) uniqueStations.add(normalize(t.to));
+        const stationsData = res.data.data || res.data.stations || [];
+        stationsData.forEach(s => {
+          if (s.name) uniqueStations.add(normalize(s.name));
         });
         const arr = Array.from(uniqueStations).filter(Boolean).sort();
         cachedStations = arr;

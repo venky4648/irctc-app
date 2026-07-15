@@ -85,3 +85,13 @@ export const getAllUsersByAdmin = asyncHandler(async (req, res) => {
         users
     });
 });
+
+export const updateUserRole = asyncHandler(async (req, res) => {
+    const { role } = req.body;
+    await AuthService.updateRole(req.params.id, role);
+    
+    res.status(200).json({
+        success: true,
+        message: "User role updated successfully"
+    });
+});

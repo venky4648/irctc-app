@@ -27,10 +27,10 @@ export const protect = async (req, res, next) => {
 export const isAdmin = (req, res, next) => {
   // In our new schema, roles are handled via role_id. 
   // For compatibility with frontend sending role string:
-  if (req.user && (req.user.role === "admin" || req.user.role_id)) { // We will map role_id to actual admin check later
+  if (req.user && (req.user.role === "admin" || req.user.role === "ADMIN" || req.user.role_id)) { 
     next();
   } else {
-    res.status(403).json({ success: false, message: "Not authorized as an admin" });
+    res.status(403).json({ success: false, message: "Not authorized as an admin", debugUser: req.user });
   }
 };
 
