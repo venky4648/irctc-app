@@ -5,7 +5,14 @@ import { Train, User, Plus, Trash2, CreditCard, CheckCircle, ArrowLeft } from 'l
 import toast from 'react-hot-toast';
 import { socket } from '../utils/socket';
 
-const CLASS_LABELS = { general: 'General (GN)', sleeper: 'Sleeper (SL)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
+const CLASS_LABELS = { 
+  General: 'General (GN)', general: 'General (GN)',
+  Sleeper: 'Sleeper (SL)', sleeper: 'Sleeper (SL)',
+  AC3: 'AC 3 Tier (3A)', ac3: 'AC 3 Tier (3A)',
+  AC2: 'AC 2 Tier (2A)', ac2: 'AC 2 Tier (2A)',
+  AC1: 'AC First Class (1A)', ac1: 'AC First Class (1A)',
+  ChairCar: 'Chair Car (CC)', chaircar: 'Chair Car (CC)'
+};
 const BERTHS = ['Lower', 'Middle', 'Upper', 'Side Lower', 'Side Upper'];
 
 const emptyPassenger = () => ({ name: '', age: '', gender: 'male', berthPreference: 'Lower' });
@@ -134,9 +141,9 @@ export default function BookTicket() {
     setBookingLoading(true);
     try {
       const payload = {
-        train_run_id: train?.trainRunId, 
-        from_station_id: train?.fromStation?.id, 
-        to_station_id: train?.toStation?.id, 
+        train_run_id: train?.trainId, 
+        from_station_id: train?.fromStation?.name || paramFrom, 
+        to_station_id: train?.toStation?.name || paramTo, 
         journey_date: searchDate,
         class_id: selectedClass, 
         quota_id: "GN", 

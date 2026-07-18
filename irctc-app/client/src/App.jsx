@@ -21,8 +21,8 @@ function SocketManager({ children }) {
   useEffect(() => {
     socket.connect();
 
-    if (user && user._id) {
-      socket.emit('join_user_room', user._id);
+    if (user) {
+      socket.emit('join_user_room', user.id || user._id);
     }
 
     const onTicketConfirmed = (payload) => {

@@ -2,102 +2,85 @@ import { pool } from "../../../shared/utils/db.js";
 import { logger } from "../../../shared/utils/logger.js";
 import PNRService from "./PNRService.js";
 import eventBus from "../../../shared/events/EventBus.js";
-import PNRRepository from "../repositories/PNRRepository.js";
-import PassengerRepository from "../repositories/PassengerRepository.js";
-import InventoryRepository from "../../inventory/repositories/InventoryRepository.js";
-import SeatRepository from "../../inventory/repositories/SeatRepository.js";
-import ScheduleRepository from "../../fleet/repositories/ScheduleRepository.js";
 
+
+function formatCoach(classId) {
+    const prefixes = {
+        'General': 'GN',
+        'Sleeper': 'S',
+        'AC3': 'B',
+        'AC2': 'A',
+        'AC1': 'H',
+        'ChairCar': 'C'
+    };
+    const prefix = prefixes[classId] || 'GN';
+    return prefix + (Math.floor(Math.random() * 3) + 1); // e.g. S1, S2, S3
+}
 class BookingService {
     async createBooking(user, bookingData) {
         const client = await pool.connect();
         
         try {
-            logger.info("Booking Started", { userId: user.id, trainRunId: bookingData.train_run_id });
+            logger.info("Booking Started", { userId: user.id });
             await client.query("BEGIN");
 
-            // 1. Validations (simplified for simulation)
-            const { train_run_id, from_station_id, to_station_id, journey_date, class_id, quota_id, passengers } = bookingData;
+            // 1. Validations
+            // Note: frontend sends train_run_id which is now actually the train_id
+            const { train_run_id: train_id, from_station_id, to_station_id, journey_date, class_id, quota_id, passengers } = bookingData;
             
             if (!passengers || passengers.length === 0 || passengers.length > 6) {
                 throw new Error("Invalid passenger count");
             }
 
-            // 2. OCC Check (Get train run)
-            const trainRun = await InventoryRepository.getTrainRunForUpdate(client, train_run_id);
-            if (!trainRun) throw new Error("Train run not found");
-            
-            // 3. Calculate Segments
-            const segments = await InventoryRepository.getRunSegments(train_run_id, from_station_id, to_station_id);
-            
-            // 4. Find Seats
-            const availableSeats = await SeatRepository.findAvailableSeats(
-                client, train_run_id, class_id, quota_id, 
-                segments.start_segment_seq, segments.end_segment_seq, 
-                passengers.length
-            );
-
-            if (availableSeats.length < passengers.length) {
-                // Here we would implement RAC/WL logic. For this simulation, we'll throw Regret.
-                throw new Error("Regret - No Availability");
-            }
-
-            // 5. Update Inventory Version (OCC)
-            const updated = await InventoryRepository.incrementInventoryVersion(client, train_run_id, trainRun.inventory_version);
-            if (!updated) {
-                throw new Error("Inventory changed. Please try again."); // Optimistic lock failed
-            }
-
-            // 6. Generate PNR
+            // 2. Generate PNR
             const pnrNumber = PNRService.generatePNR();
 
-            // 7. Calculate Fare dynamically based on distance
-            const fromSchedule = await ScheduleRepository.findById(trainRun.train_id, from_station_id);
-            const toSchedule = await ScheduleRepository.findById(trainRun.train_id, to_station_id);
+            // 3. Fetch Train Details and Calculate Fare/Availability
+            const trainRes = await client.query("SELECT name, train_number, coaches_json FROM trains WHERE id = $1", [train_id]);
+            if (trainRes.rows.length === 0) throw new Error("Train not found");
+            const trainInfo = trainRes.rows[0];
+
+            const coaches = trainInfo.coaches_json || [];
+            const targetCoach = coaches.find(c => c.type === class_id) || { count: 2, seatsPerCoach: 72, price: 500 };
             
-            let totalFare = passengers.length * 1000; // Fallback
-            if (fromSchedule && toSchedule) {
-                const distance = Math.abs(toSchedule.distance_from_origin - fromSchedule.distance_from_origin);
-                // Base calculation: Distance * 1.5 multiplier + 50 base charge
-                const baseFare = Math.max(distance * 1.5, 50);
-                // In a real system, we'd apply class multiplier (e.g., 1A=3x, 2A=2x, SL=1x)
-                totalFare = passengers.length * baseFare;
-            }
+            const totalSeats = parseInt(targetCoach.count, 10) * parseInt(targetCoach.seatsPerCoach, 10);
+            const baseFare = parseInt(targetCoach.price, 10) || 500;
+            let totalFare = passengers.length * baseFare;
 
-            const pnr = await PNRRepository.createPNR(client, {
-                pnr_number: pnrNumber,
-                user_id: user.id,
-                train_run_id,
-                from_station_id,
-                to_station_id,
-                journey_date,
-                train_class_id: class_id,
-                quota_id,
-                total_fare: totalFare,
-                status: 'BOOKED'
-            });
+            // Check how many seats are already booked
+            const bookedRes = await client.query(`
+                SELECT COUNT(px.id) as booked_seats
+                FROM pnrs p
+                JOIN passengers px ON p.id = px.pnr_id
+                WHERE p.journey_date = $1 AND p.train_id = $2 AND p.train_class_id = $3
+                  AND p.status != 'CANCELLED' AND px.current_status != 'CANCELLED'
+            `, [journey_date, train_id, class_id]);
+            
+            let currentBooked = parseInt(bookedRes.rows[0].booked_seats, 10) || 0;
 
-            // 8. Create Passengers (Optimized mapping for waitlist/RAC/CNF)
-            const mappedPassengers = passengers.map(p => ({
-                ...p,
-                current_status: 'CNF',
-            }));
+            // 4. Create PNR Record
+            const pnrRes = await client.query(
+                `INSERT INTO pnrs (pnr_number, user_id, train_id, from_station_name, to_station_name, journey_date, train_class_id, quota_id, total_fare, status)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+                [pnrNumber, user.id, train_id, from_station_id, to_station_id, journey_date, class_id, quota_id, totalFare, 'BOOKED']
+            );
+            const pnr = pnrRes.rows[0];
 
-            const createdPassengers = await PassengerRepository.bulkCreatePassengers(client, pnr.id, mappedPassengers);
-
-            // 9. Create Seat Allocations
-            for (let i = 0; i < createdPassengers.length; i++) {
-                const pax = createdPassengers[i];
-                const seat = availableSeats[i];
-                await SeatRepository.createSeatAllocation(
-                    client,
-                    train_run_id,
-                    seat.seat_inventory_id,
-                    pax.id,
-                    pnrNumber,
-                    segments.start_segment_seq,
-                    segments.end_segment_seq
+            // 5. Create Passengers and Assign Status
+            const createdPassengers = [];
+            for (let i = 0; i < passengers.length; i++) {
+                const pax = passengers[i];
+                currentBooked++;
+                
+                // If currentBooked exceeds totalSeats, it's WL
+                const paxStatus = currentBooked > totalSeats ? 'WL' : 'CNF';
+                
+                const paxRes = await client.query(
+                    `INSERT INTO passengers (pnr_id, passenger_index, name, age, gender, berth_preference_id, current_status)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+                    [pnr.id, i + 1, pax.name, pax.age, pax.gender, pax.berthPreference || 'Lower', paxStatus]
                 );
+                createdPassengers.push(paxRes.rows[0]);
             }
 
             await client.query("COMMIT");
@@ -107,29 +90,254 @@ class BookingService {
                 userId: user.id,
                 email: user.email,
                 pnr: pnrNumber,
-                trainName: "IRCTC Train",
-                trainNumber: train_run_id,
+                trainName: trainInfo.name,
+                trainNumber: trainInfo.train_number,
                 from: from_station_id,
                 to: to_station_id
             });
 
             return {
-                pnr: pnr.pnr_number,
-                status: pnr.status,
-                passengers: createdPassengers
+                bookingDetails: {
+                    pnrNumber: pnr.pnr_number,
+                    bookingStatus: pnr.status,
+                    trainName: trainInfo.name,
+                    trainNumber: trainInfo.train_number,
+                    travelClass: pnr.train_class_id,
+                    totalSeats: createdPassengers.length,
+                    totalAmount: pnr.total_fare,
+                    passengers: createdPassengers.map(p => ({
+                        name: p.name,
+                        age: p.age,
+                        gender: p.gender,
+                        berthPreference: p.berth_preference_id || 'Lower',
+                        status: p.current_status,
+                        coach: formatCoach(pnr.train_class_id),
+                        seatNumber: Math.floor(Math.random() * 70) + 1
+                    }))
+                }
             };
 
         } catch (error) {
             await client.query("ROLLBACK");
             logger.error("Booking Failed", { error: error.message, userId: user.id });
-            
-            // Handle PostgreSQL exclusion violation (GiST)
-            if (error.code === '23P01') {
-                const err = new Error("Seat already taken due to high concurrency. Please try again.");
-                err.statusCode = 409;
-                throw err;
-            }
             throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    async getBookingByPNR(pnrNumber) {
+        const query = `
+            SELECT 
+                p.id as pnr_id, p.pnr_number, p.journey_date, p.train_class_id, p.total_fare, p.status as pnr_status, p.created_at, p.user_id,
+                t.name as train_name, t.train_number,
+                p.from_station_name as from_station,
+                p.to_station_name as to_station,
+                (SELECT arrival_time FROM train_routes WHERE train_id = t.id AND station_name = p.to_station_name LIMIT 1) as to_arrival_time,
+                (SELECT departure_time FROM train_routes WHERE train_id = t.id AND station_name = p.from_station_name LIMIT 1) as from_departure_time,
+                px.id as pax_id, px.name as pax_name, px.age as pax_age, px.gender as pax_gender, px.berth_preference_id as pax_berth_preference, px.current_status as pax_status
+            FROM pnrs p
+            JOIN trains t ON p.train_id = t.id
+            LEFT JOIN passengers px ON px.pnr_id = p.id
+            WHERE p.pnr_number = $1
+        `;
+        const { rows } = await pool.query(query, [pnrNumber]);
+        
+        if (rows.length === 0) return null;
+
+        const booking = {
+            id: rows[0].pnr_id,
+            user_id: rows[0].user_id,
+            bookingStatus: rows[0].pnr_status === 'BOOKED' ? 'confirmed' : 'cancelled',
+            pnrNumber: rows[0].pnr_number,
+            bookingDate: rows[0].created_at,
+            travelClass: rows[0].train_class_id,
+            totalAmount: rows[0].total_fare,
+            paymentStatus: 'completed',
+            train: {
+                trainName: rows[0].train_name,
+                trainNumber: rows[0].train_number,
+                from: rows[0].from_station,
+                to: rows[0].to_station,
+                departureTime: rows[0].from_departure_time || '00:00',
+                arrivalTime: rows[0].to_arrival_time || '00:00'
+            },
+            passengers: [],
+            passengerDetails: [],
+            totalSeats: 0
+        };
+
+        for (const row of rows) {
+            if (row.pax_id) {
+                const pax = {
+                    name: row.pax_name,
+                    age: row.pax_age,
+                    gender: row.pax_gender,
+                    berthPreference: row.pax_berth_preference || 'Lower',
+                    status: row.pax_status,
+                    coach: formatCoach(rows[0].train_class_id), 
+                    seatNumber: Math.floor(Math.random() * 70) + 1 
+                };
+                booking.passengers.push(pax);
+                booking.passengerDetails.push(pax);
+                booking.totalSeats++;
+            }
+        }
+        
+        return booking;
+    }
+
+    async getMyBookings(userId) {
+        // Fetch all PNRs and their associated passengers and train info
+        const query = `
+            SELECT 
+                p.id as pnr_id, p.pnr_number, p.journey_date, p.train_class_id, p.total_fare, p.status as pnr_status, p.created_at,
+                t.name as train_name, t.train_number,
+                p.from_station_name as from_station,
+                p.to_station_name as to_station,
+                (SELECT arrival_time FROM train_routes WHERE train_id = t.id AND station_name = p.to_station_name LIMIT 1) as to_arrival_time,
+                (SELECT departure_time FROM train_routes WHERE train_id = t.id AND station_name = p.from_station_name LIMIT 1) as from_departure_time,
+                px.id as pax_id, px.name as pax_name, px.age as pax_age, px.gender as pax_gender, px.berth_preference_id as pax_berth_preference, px.current_status as pax_status
+            FROM pnrs p
+            JOIN trains t ON p.train_id = t.id
+            LEFT JOIN passengers px ON px.pnr_id = p.id
+            WHERE p.user_id = $1
+            ORDER BY p.created_at DESC
+        `;
+        const { rows } = await pool.query(query, [userId]);
+
+        // Group by PNR
+        const bookingsMap = {};
+        for (const row of rows) {
+            if (!bookingsMap[row.pnr_id]) {
+                bookingsMap[row.pnr_id] = {
+                    id: row.pnr_id,
+                    bookingStatus: row.pnr_status === 'BOOKED' ? 'confirmed' : 'cancelled',
+                    pnrNumber: row.pnr_number,
+                    bookingDate: row.created_at,
+                    travelClass: row.train_class_id,
+                    totalAmount: row.total_fare,
+                    paymentStatus: 'completed',
+                    train: {
+                        trainName: row.train_name,
+                        trainNumber: row.train_number,
+                        from: row.from_station,
+                        to: row.to_station,
+                        departureTime: row.from_departure_time || '00:00',
+                        arrivalTime: row.to_arrival_time || '00:00'
+                    },
+                    passengers: [],
+                    totalSeats: 0
+                };
+            }
+            if (row.pax_id) {
+                bookingsMap[row.pnr_id].passengers.push({
+                    id: row.pax_id,
+                    name: row.pax_name,
+                    age: row.pax_age,
+                    gender: row.pax_gender,
+                    berthPreference: row.pax_berth_preference || 'Lower',
+                    status: row.pax_status,
+                    coach: formatCoach(row.train_class_id), 
+                    seatNumber: Math.floor(Math.random() * 70) + 1
+                });
+                bookingsMap[row.pnr_id].totalSeats++;
+            }
+        }
+
+        return Object.values(bookingsMap);
+    }
+
+    async _processWaitlist(client, train_id, journey_date, class_id, countToConfirm) {
+        if (countToConfirm <= 0) return;
+        
+        const wlRes = await client.query(`
+            SELECT px.id, p.user_id, p.pnr_number, px.name
+            FROM passengers px
+            JOIN pnrs p ON p.id = px.pnr_id
+            WHERE p.train_id = $1 AND p.journey_date = $2 AND p.train_class_id = $3
+              AND px.current_status = 'WL' AND p.status != 'CANCELLED'
+            ORDER BY px.created_at ASC
+            LIMIT $4
+        `, [train_id, journey_date, class_id, countToConfirm]);
+
+        for (const pax of wlRes.rows) {
+            await client.query("UPDATE passengers SET current_status = 'CNF' WHERE id = $1", [pax.id]);
+            eventBus.emit('WL_CONFIRMED', {
+                userId: pax.user_id,
+                pnr: pax.pnr_number,
+                passengerName: pax.name
+            });
+            logger.info("Waitlist passenger upgraded", { pnr: pax.pnr_number, passengerId: pax.id });
+        }
+    }
+
+    async cancelBooking(bookingId, userId) {
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+            
+            // Verify ownership and get details
+            const check = await client.query("SELECT train_id, journey_date, train_class_id FROM pnrs WHERE id = $1 AND user_id = $2 AND status != 'CANCELLED'", [bookingId, userId]);
+            if (check.rows.length === 0) throw new Error("Booking not found, already cancelled, or not authorized");
+            const { train_id, journey_date, train_class_id } = check.rows[0];
+
+            // Count how many CNF passengers are being cancelled
+            const cnfCountRes = await client.query("SELECT COUNT(*) as cnt FROM passengers WHERE pnr_id = $1 AND current_status = 'CNF'", [bookingId]);
+            const freedSeatsCount = parseInt(cnfCountRes.rows[0].cnt, 10);
+
+            await client.query("UPDATE pnrs SET status = 'CANCELLED' WHERE id = $1", [bookingId]);
+            await client.query("UPDATE passengers SET current_status = 'CANCELLED' WHERE pnr_id = $1", [bookingId]);
+
+            // Process waitlist if seats were freed
+            if (freedSeatsCount > 0) {
+                await this._processWaitlist(client, train_id, journey_date, train_class_id, freedSeatsCount);
+            }
+
+            await client.query("COMMIT");
+            return true;
+        } catch (e) {
+            await client.query("ROLLBACK");
+            throw e;
+        } finally {
+            client.release();
+        }
+    }
+
+    async cancelPassenger(bookingId, passengerId, userId) {
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+            
+            // Verify ownership and get details
+            const check = await client.query("SELECT train_id, journey_date, train_class_id FROM pnrs WHERE id = $1 AND user_id = $2 AND status != 'CANCELLED'", [bookingId, userId]);
+            if (check.rows.length === 0) throw new Error("Booking not found, already cancelled, or not authorized");
+            const { train_id, journey_date, train_class_id } = check.rows[0];
+
+            // Check if this specific passenger is CNF
+            const paxCheck = await client.query("SELECT current_status FROM passengers WHERE id = $1 AND pnr_id = $2 AND current_status != 'CANCELLED'", [passengerId, bookingId]);
+            if (paxCheck.rows.length === 0) throw new Error("Passenger not found or already cancelled");
+            const freedSeatsCount = paxCheck.rows[0].current_status === 'CNF' ? 1 : 0;
+
+            await client.query("UPDATE passengers SET current_status = 'CANCELLED' WHERE id = $1 AND pnr_id = $2", [passengerId, bookingId]);
+
+            // Check if all passengers are cancelled
+            const pax = await client.query("SELECT current_status FROM passengers WHERE pnr_id = $1", [bookingId]);
+            const allCancelled = pax.rows.every(p => p.current_status === 'CANCELLED');
+            if (allCancelled) {
+                await client.query("UPDATE pnrs SET status = 'CANCELLED' WHERE id = $1", [bookingId]);
+            }
+
+            // Process waitlist if seats were freed
+            if (freedSeatsCount > 0) {
+                await this._processWaitlist(client, train_id, journey_date, train_class_id, freedSeatsCount);
+            }
+
+            await client.query("COMMIT");
+            return true;
+        } catch (e) {
+            await client.query("ROLLBACK");
+            throw e;
         } finally {
             client.release();
         }

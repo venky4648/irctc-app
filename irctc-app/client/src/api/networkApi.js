@@ -1,7 +1,7 @@
 import API from '../utils/api';
 
 export const networkApi = {
-    searchStations: (query = '') => API.get(`/network/stations?search=${encodeURIComponent(query)}`),
+    searchStations: (query = '') => API.get(`/trains/stations?search=${encodeURIComponent(query)}`),
     getStation: (id) => API.get(`/network/stations/${id}`),
     addStation: (payload) => API.post('/network/stations', payload),
     updateStation: (id, payload) => API.put(`/network/stations/${id}`, payload),

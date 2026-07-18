@@ -2,7 +2,14 @@ import { useState } from 'react';
 import { bookingApi } from '../api/bookingApi';
 import { Search, Train, CheckCircle, XCircle, Clock, Ticket, Users } from 'lucide-react';
 
-const CLASS_LABELS = { general: 'General (GN)', sleeper: 'Sleeper (SL)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
+const CLASS_LABELS = { 
+  General: 'General (GN)', general: 'General (GN)',
+  Sleeper: 'Sleeper (SL)', sleeper: 'Sleeper (SL)',
+  AC3: 'AC 3 Tier (3A)', ac3: 'AC 3 Tier (3A)',
+  AC2: 'AC 2 Tier (2A)', ac2: 'AC 2 Tier (2A)',
+  AC1: 'AC First Class (1A)', ac1: 'AC First Class (1A)',
+  ChairCar: 'Chair Car (CC)', chaircar: 'Chair Car (CC)'
+};
 
 export default function PNRStatus() {
   const [pnr, setPnr] = useState('');

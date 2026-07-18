@@ -5,6 +5,10 @@
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+-- Drop existing tables to recreate them with the new schema
+DROP TABLE IF EXISTS passengers CASCADE;
+DROP TABLE IF EXISTS pnrs CASCADE;
+
 -- ==============================================================================
 -- 1. Table: pnrs
 -- ==============================================================================
@@ -12,12 +16,12 @@ CREATE TABLE IF NOT EXISTS pnrs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     pnr_number VARCHAR(20) UNIQUE NOT NULL,
     user_id UUID NOT NULL REFERENCES auth_users(id),
-    train_run_id UUID NOT NULL REFERENCES train_run(id),
-    from_station_id UUID NOT NULL REFERENCES stations(id),
-    to_station_id UUID NOT NULL REFERENCES stations(id),
+    train_id UUID NOT NULL REFERENCES trains(id) ON DELETE CASCADE,
+    from_station_name VARCHAR(100) NOT NULL,
+    to_station_name VARCHAR(100) NOT NULL,
     journey_date DATE,
-    train_class_id UUID,
-    quota_id UUID,
+    train_class_id VARCHAR(50),
+    quota_id VARCHAR(50),
     total_fare DECIMAL(10, 2),
     status VARCHAR(50) DEFAULT 'BOOKED',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -26,7 +30,7 @@ CREATE TABLE IF NOT EXISTS pnrs (
 
 CREATE INDEX IF NOT EXISTS idx_pnrs_pnr_number ON pnrs(pnr_number);
 CREATE INDEX IF NOT EXISTS idx_pnrs_user_id ON pnrs(user_id);
-CREATE INDEX IF NOT EXISTS idx_pnrs_train_run_id ON pnrs(train_run_id);
+CREATE INDEX IF NOT EXISTS idx_pnrs_train_id ON pnrs(train_id);
 CREATE INDEX IF NOT EXISTS idx_pnrs_journey_date ON pnrs(journey_date);
 CREATE INDEX IF NOT EXISTS idx_pnrs_status ON pnrs(status);
 
@@ -40,10 +44,9 @@ CREATE TABLE IF NOT EXISTS passengers (
     name VARCHAR(255) NOT NULL,
     age INTEGER NOT NULL,
     gender VARCHAR(10),
-    berth_preference_id UUID,
+    berth_preference_id VARCHAR(50),
     food_preference VARCHAR(50),
     current_status VARCHAR(50),
-    current_coach_id UUID REFERENCES coaches(id),
     current_seat_number VARCHAR(10),
     current_berth_type VARCHAR(20),
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

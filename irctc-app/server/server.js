@@ -8,12 +8,12 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import authRoutes from './domains/auth/routes/authRoutes.js';
-// import bookingRoutes from './domains/booking/routes/bookingRoutes.js';
+import bookingRoutes from './domains/booking/routes/bookingRoutes.js';
 import trainRoutes from './domains/trains/routes/trainRoutes.js';
 // import paymentRoutes from './domains/payment/routes/paymentRoutes.js';
 import adminRoutes from './domains/admin/routes/adminRoutes.js';
 // import analyticsRoutes from './domains/analytics/routes/analyticsRoutes.js';
-// import searchRoutes from './domains/search/routes/searchRoutes.js';
+import searchRoutes from './domains/search/routes/searchRoutes.js';
 // import notificationRoutes from './domains/notification/routes/notificationRoutes.js';
 // import searchRoutes from './domains/search/routes/searchRoutes.js';
 import seedRoutes from './routes/seedRoutes.js';
@@ -32,6 +32,8 @@ app.use((req, res, next) => {
   next();
 });
 
+import eventBus from './shared/events/EventBus.js';
+
 io.on('connection', (socket) => {
   logger.info(`Socket connected: ${socket.id}`);
   
@@ -44,6 +46,10 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     logger.info(`Socket disconnected: ${socket.id}`);
   });
+});
+
+eventBus.on('WL_CONFIRMED', (data) => {
+  io.to(data.userId).emit('ticketConfirmed', { ...data, seatNumber: 'CNF (Generated)' });
 });
 
 connectDB();
@@ -77,13 +83,13 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/auth', strictLimiter, authRoutes);
-// app.use('/api/bookings', strictLimiter, bookingRoutes);
+app.use('/api/bookings', strictLimiter, bookingRoutes);
 app.use('/api/trains', trainRoutes);
 // app.use('/api/payments', paymentRoutes);
 app.use('/api/admin', adminRoutes);
 // app.use('/api/analytics', analyticsRoutes);
 // app.use('/api/notifications', notificationRoutes);
-// app.use('/api/search', searchRoutes);
+app.use('/api/search', searchRoutes);
 // app.use('/api/seed', seedRoutes);
 
 

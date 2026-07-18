@@ -7,8 +7,22 @@ import { useAuth } from '../context/AuthContext';
 import StationInput from '../components/StationInput';
 import toast from 'react-hot-toast';
 
-const CLASS_LABELS = { general: 'General (GN)', sleeper: 'Sleeper (SL)', ac3: 'AC 3 Tier (3A)', ac2: 'AC 2 Tier (2A)', ac1: 'AC First Class (1A)' };
-const CLASS_COLORS = { general: '#64748b', sleeper: '#10b981', ac3: '#2563eb', ac2: '#7c3aed', ac1: '#b45309' };
+const CLASS_LABELS = { 
+  General: 'General (GN)', general: 'General (GN)',
+  Sleeper: 'Sleeper (SL)', sleeper: 'Sleeper (SL)',
+  AC3: 'AC 3 Tier (3A)', ac3: 'AC 3 Tier (3A)',
+  AC2: 'AC 2 Tier (2A)', ac2: 'AC 2 Tier (2A)',
+  AC1: 'AC First Class (1A)', ac1: 'AC First Class (1A)',
+  ChairCar: 'Chair Car (CC)', chaircar: 'Chair Car (CC)'
+};
+const CLASS_COLORS = { 
+  General: '#64748b', general: '#64748b',
+  Sleeper: '#10b981', sleeper: '#10b981',
+  AC3: '#2563eb', ac3: '#2563eb',
+  AC2: '#7c3aed', ac2: '#7c3aed',
+  AC1: '#b45309', ac1: '#b45309',
+  ChairCar: '#0284c7', chaircar: '#0284c7'
+};
 
 export default function SearchTrains() {
   const [params] = useSearchParams();
@@ -75,7 +89,7 @@ export default function SearchTrains() {
       navigate('/login');
       return;
     }
-    navigate('/book', {
+    navigate('/book/' + train.trainId, {
       state: {
         searchResult: train,
         selectedClass: cls,

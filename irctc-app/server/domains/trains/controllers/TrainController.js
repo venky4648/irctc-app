@@ -1,5 +1,14 @@
 import { pool } from '../../../shared/utils/db.js';
 
+export const getStations = async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT DISTINCT station_name as name FROM train_routes ORDER BY name');
+    res.json({ success: true, stations: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 export const getAllTrains = async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM trains ORDER BY created_at DESC');
@@ -10,13 +19,33 @@ export const getAllTrains = async (req, res) => {
 };
 
 export const createTrain = async (req, res) => {
-  const { train_number, name, departure_time, arrival_time } = req.body;
+  const { train_number, name, departure_time, arrival_time, running_days, coaches_json } = req.body;
   try {
     const { rows } = await pool.query(
-      'INSERT INTO trains (train_number, name, departure_time, arrival_time) VALUES ($1, $2, $3, $4) RETURNING *',
-      [train_number, name, departure_time, arrival_time]
+      'INSERT INTO trains (train_number, name, departure_time, arrival_time, running_days, coaches_json) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+      [
+        train_number, 
+        name, 
+        departure_time, 
+        arrival_time, 
+        running_days || 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
+        coaches_json ? JSON.stringify(coaches_json) : '[]'
+      ]
     );
     res.json({ success: true, train: rows[0], message: 'Train added successfully' });
+  } catch (error) {
+    if (error.code === '23505' && error.constraint === 'trains_train_number_key') {
+      return res.status(400).json({ success: false, message: 'Train number already exists. Please use a unique train number.' });
+    }
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const deleteTrain = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await pool.query('DELETE FROM trains WHERE id = $1', [id]);
+    res.json({ success: true, message: 'Train deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
