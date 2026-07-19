@@ -4,8 +4,36 @@ import PaymentRepository from "../repositories/PaymentRepository.js";
 import TransactionRepository from "../repositories/TransactionRepository.js";
 import LedgerService from "./LedgerService.js";
 import crypto from "crypto";
+import Razorpay from "razorpay";
 
 class PaymentService {
+    
+    getRazorpayInstance() {
+        return new Razorpay({
+            key_id: process.env.RAZORPAY_KEY_ID,
+            key_secret: process.env.RAZORPAY_SECRET
+        });
+    }
+
+    async createRazorpayOrder(amount, receipt) {
+        const rzp = this.getRazorpayInstance();
+        const options = {
+            amount: Math.round(amount * 100), // amount in paise
+            currency: 'INR',
+            receipt: receipt || `rcpt_${Date.now()}`
+        };
+        return await rzp.orders.create(options);
+    }
+
+    verifyRazorpaySignature(orderId, paymentId, signature) {
+        const generatedSignature = crypto
+            .createHmac('sha256', process.env.RAZORPAY_SECRET)
+            .update(orderId + "|" + paymentId)
+            .digest('hex');
+        
+        return generatedSignature === signature;
+    }
+
     async initiatePayment(userId, paymentData) {
         // Enforce idempotency key from client, or fallback to generating one
         const idempotencyKey = paymentData.idempotency_key || crypto.randomUUID();
@@ -20,9 +48,12 @@ class PaymentService {
         try {
             await client.query("BEGIN");
             
+            // Generate Razorpay order
+            const rzpOrder = await this.createRazorpayOrder(paymentData.total_amount, `rcpt_${Date.now()}`);
+
             // 2. Create Payment Record
             const payment = await PaymentRepository.createPayment(client, {
-                booking_id: paymentData.booking_id,
+                booking_id: paymentData.booking_id || null, // Might not exist yet if we book post-payment
                 user_id: userId,
                 total_amount: paymentData.total_amount,
                 idempotency_key: idempotencyKey,
@@ -32,23 +63,22 @@ class PaymentService {
             // 3. Create Transaction Record
             const transaction = await TransactionRepository.createTransaction(client, {
                 payment_id: payment.id,
-                gateway_id: paymentData.gateway_id,
+                gateway_id: rzpOrder.id, // Store razorpay order id here
                 amount: paymentData.total_amount,
                 status: 'INITIATED'
             });
 
             await client.query("COMMIT");
-            logger.info("Payment Initiated", { paymentId: payment.id, idempotencyKey });
+            logger.info("Payment Initiated", { paymentId: payment.id, rzpOrderId: rzpOrder.id });
             
             return {
                 payment,
                 transaction,
-                // Normally return a payment URL or gateway order ID here
-                gateway_url: `https://mock-gateway.com/pay/${transaction.id}`
+                order_id: rzpOrder.id
             };
         } catch (error) {
             await client.query("ROLLBACK");
-            logger.error("Payment Initiation Failed", { error: error.message });
+            logger.error("Payment Initiation Failed", { error: error, message: error.message, stack: error.stack });
             throw error;
         } finally {
             client.release();
@@ -69,8 +99,12 @@ class PaymentService {
                 return payment; // Already verified
             }
 
-            // 1. Mock Verification Logic
-            const isSuccess = verificationData.status === 'SUCCESS';
+            // 1. Verify Razorpay Signature
+            const isSuccess = this.verifyRazorpaySignature(
+                verificationData.razorpay_order_id, 
+                verificationData.razorpay_payment_id, 
+                verificationData.razorpay_signature
+            );
             
             if (isSuccess) {
                 // 2. Update Payment Status

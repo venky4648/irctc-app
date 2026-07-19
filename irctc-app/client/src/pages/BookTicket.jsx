@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { bookingApi } from '../api/bookingApi';
+import { paymentApi } from '../api/paymentApi';
 import { Train, User, Plus, Trash2, CreditCard, CheckCircle, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { socket } from '../utils/socket';
@@ -43,6 +44,17 @@ export default function BookTicket() {
   const [availabilityInfo, setAvailabilityInfo] = useState(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [availabilityError, setAvailabilityError] = useState('');
+
+  useEffect(() => {
+    // Dynamically load Razorpay SDK
+    if (!document.getElementById('razorpay-checkout-js')) {
+      const script = document.createElement('script');
+      script.id = 'razorpay-checkout-js';
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
 
   const classData = train?.classes?.[selectedClass];
   const price = classData?.price || 0;
@@ -149,12 +161,62 @@ export default function BookTicket() {
         quota_id: "GN", 
         passengers: passengers.map(p => ({ ...p, age: Number(p.age) }))
       };
-      const { data } = await bookingApi.bookTicket(payload);
-      setBooking(data);
-      setStep(3);
-      toast.success('Booking confirmed!');
+      
+      // 1. Create Razorpay order via backend
+      const { data: initData } = await paymentApi.initiatePayment({
+        total_amount: totalAmount,
+      });
+
+      // 2. Open Razorpay checkout
+      const options = {
+        key: "rzp_test_So4nQS5Ga53eKi", // Note: ideally comes from backend or env config
+        amount: totalAmount * 100, // paise
+        currency: "INR",
+        name: "IRCTC Clone",
+        description: "Train Ticket Booking",
+        order_id: initData.order_id,
+        handler: async function (response) {
+          try {
+            // 3. Verify Payment & Finalize Booking
+            const verifyPayload = {
+              payment_id: initData.payment.id,
+              verification_data: {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              },
+              booking_data: payload
+            };
+            const { data: bookData } = await paymentApi.verifyPayment(verifyPayload);
+            setBooking(bookData);
+            setStep(3);
+            toast.success('Payment successful! Booking confirmed!');
+          } catch (verifyErr) {
+            toast.error(verifyErr.response?.data?.message || 'Payment verification failed');
+          }
+        },
+        prefill: {
+          name: passengers[0]?.name || "Passenger",
+          email: "user@example.com",
+          contact: "9999999999"
+        },
+        theme: {
+          color: "#083b8a"
+        }
+      };
+
+      if (!window.Razorpay) {
+        throw new Error("Razorpay SDK not loaded");
+      }
+
+      const rzp1 = new window.Razorpay(options);
+      rzp1.on('payment.failed', function (response){
+        toast.error("Payment failed: " + response.error.description);
+      });
+      rzp1.open();
+
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Booking failed. Please try again.');
+      toast.error(err.message || err.response?.data?.message || 'Failed to initialize payment.');
     } finally {
       setBookingLoading(false);
     }
@@ -433,38 +495,9 @@ export default function BookTicket() {
                     <CreditCard size={18} color="var(--irctc-blue)" /> Payment Method
                   </h3>
 
-                  {[
-                    { value: 'upi', label: 'UPI', icon: '📱', desc: 'Pay via GPay, PhonePe, Paytm' },
-                    { value: 'net_banking', label: 'Net Banking', icon: '🏦', desc: 'All major Indian banks' },
-                    { value: 'debit_card', label: 'Debit Card', icon: '💳', desc: 'Visa, Mastercard, RuPay' },
-                    { value: 'credit_card', label: 'Credit Card', icon: '💳', desc: 'Visa, Mastercard, Amex' },
-                  ].map(({ value, label, icon, desc }) => (
-                    <label key={value} style={{
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                      padding: '14px', border: `2px solid ${paymentMethod === value ? 'var(--irctc-blue)' : 'var(--irctc-gray-200)'}`,
-                      borderRadius: '8px', marginBottom: '10px', cursor: 'pointer',
-                      background: paymentMethod === value ? '#e8f0fb' : 'white',
-                      transition: 'all 0.15s',
-                    }}>
-                      <input type="radio" name="payment" value={value} checked={paymentMethod === value} onChange={() => setPaymentMethod(value)} style={{ accentColor: 'var(--irctc-blue)' }} />
-                      <span style={{ fontSize: '20px' }}>{icon}</span>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--irctc-gray-800)' }}>{label}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--irctc-gray-500)' }}>{desc}</div>
-                      </div>
-                    </label>
-                  ))}
-
-                  {paymentMethod === 'upi' && (
-                    <div style={{ marginTop: '8px' }}>
-                      <input value={upiId} onChange={e => setUpiId(e.target.value)}
-                        placeholder="Enter UPI ID (e.g. name@upi)"
-                        style={{ width: '100%', padding: '11px 14px', border: '2px solid var(--irctc-gray-200)', borderRadius: '8px', fontSize: '14px' }}
-                        onFocus={e => e.target.style.borderColor = 'var(--irctc-blue)'}
-                        onBlur={e => e.target.style.borderColor = 'var(--irctc-gray-200)'}
-                      />
-                    </div>
-                  )}
+                  <p style={{ fontSize: '14px', color: 'var(--irctc-gray-600)', marginBottom: '20px' }}>
+                    You will be redirected to the secure Razorpay dashboard to choose your preferred payment method (UPI, Net Banking, Credit/Debit Cards).
+                  </p>
 
                   <button onClick={handleBook} disabled={booking_loading} style={{
                     width: '100%', padding: '15px', marginTop: '20px',

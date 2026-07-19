@@ -10,7 +10,7 @@ import { Server } from 'socket.io';
 import authRoutes from './domains/auth/routes/authRoutes.js';
 import bookingRoutes from './domains/booking/routes/bookingRoutes.js';
 import trainRoutes from './domains/trains/routes/trainRoutes.js';
-// import paymentRoutes from './domains/payment/routes/paymentRoutes.js';
+import paymentRoutes from './domains/payment/routes/paymentRoutes.js';
 import adminRoutes from './domains/admin/routes/adminRoutes.js';
 // import analyticsRoutes from './domains/analytics/routes/analyticsRoutes.js';
 import searchRoutes from './domains/search/routes/searchRoutes.js';
@@ -85,7 +85,7 @@ app.get('/', (req, res) => {
 app.use('/api/auth', strictLimiter, authRoutes);
 app.use('/api/bookings', strictLimiter, bookingRoutes);
 app.use('/api/trains', trainRoutes);
-// app.use('/api/payments', paymentRoutes);
+app.use('/api/payment', paymentRoutes);
 app.use('/api/admin', adminRoutes);
 // app.use('/api/analytics', analyticsRoutes);
 // app.use('/api/notifications', notificationRoutes);

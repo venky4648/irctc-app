@@ -7,9 +7,24 @@ export const initiatePayment = asyncHandler(async (req, res) => {
     res.status(201).json({ success: true, ...result });
 });
 
+import BookingService from "../../booking/services/BookingService.js";
+
 export const verifyPayment = asyncHandler(async (req, res) => {
+    // req.body should contain { payment_id, verification_data: { razorpay_order_id, razorpay_payment_id, razorpay_signature }, booking_data }
     const payment = await PaymentService.verifyPayment(req.body.payment_id, req.body.verification_data);
-    res.status(200).json({ success: true, payment });
+    
+    // If verification succeeded and it's marked SUCCESS
+    if (payment.status === 'SUCCESS' && req.body.booking_data) {
+        // Now create the booking
+        const bookingResult = await BookingService.createBooking(req.user, req.body.booking_data);
+        
+        // Link the booking ID to the payment
+        // (In a complete system, we would update the payment record with bookingResult.bookingDetails.id, but this is a solid start)
+        
+        return res.status(200).json({ success: true, payment, bookingDetails: bookingResult.bookingDetails });
+    } else {
+        return res.status(400).json({ success: false, message: "Payment verification failed" });
+    }
 });
 
 export const paymentWebhook = asyncHandler(async (req, res) => {
