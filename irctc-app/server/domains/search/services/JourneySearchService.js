@@ -29,23 +29,55 @@ class JourneySearchService {
 
         const trainIds = rows.map(r => r.train_id);
         
-        // Fetch passenger counts grouped by train and class
+        // Fetch passenger counts grouped by train, class, and segment
         const bookedQuery = `
-            SELECT p.train_id, p.train_class_id, COUNT(px.id) as booked_seats
+            SELECT p.train_id, p.train_class_id, 
+                   tr1.halt_order AS booked_from_order,
+                   tr2.halt_order AS booked_to_order,
+                   COUNT(px.id) as passenger_count
             FROM pnrs p
             JOIN passengers px ON p.id = px.pnr_id
+            JOIN train_routes tr1 ON p.train_id = tr1.train_id AND LOWER(p.from_station_name) = LOWER(tr1.station_name)
+            JOIN train_routes tr2 ON p.train_id = tr2.train_id AND LOWER(p.to_station_name) = LOWER(tr2.station_name)
             WHERE p.journey_date = $1 AND p.status != 'CANCELLED' AND px.current_status != 'CANCELLED'
               AND p.train_id = ANY($2::uuid[])
-            GROUP BY p.train_id, p.train_class_id
+            GROUP BY p.train_id, p.train_class_id, tr1.halt_order, tr2.halt_order
         `;
         
         const bookedRes = await pool.query(bookedQuery, [date, trainIds]);
         
-        // Build map: bookedMap[train_id][class_id] = booked_seats
+        // Build map: searchOrders[train_id] = { searchFromOrder, searchToOrder }
+        const searchOrders = {};
+        rows.forEach(r => {
+            searchOrders[r.train_id] = { fromOrder: r.from_order, toOrder: r.to_order };
+        });
+
+        // Calculate peak occupancy for the requested segment
         const bookedMap = {};
         bookedRes.rows.forEach(b => {
-            if (!bookedMap[b.train_id]) bookedMap[b.train_id] = {};
-            bookedMap[b.train_id][b.train_class_id] = parseInt(b.booked_seats, 10);
+            const trainOrders = searchOrders[b.train_id];
+            if (!trainOrders) return;
+
+            // Check if this booking overlaps with the searched segment
+            // Overlap condition: booking_start < search_end AND booking_end > search_start
+            if (b.booked_from_order < trainOrders.toOrder && b.booked_to_order > trainOrders.fromOrder) {
+                if (!bookedMap[b.train_id]) bookedMap[b.train_id] = {};
+                if (!bookedMap[b.train_id][b.train_class_id]) {
+                    // Initialize array to hold occupancy at each station halt in the segment
+                    bookedMap[b.train_id][b.train_class_id] = Array(trainOrders.toOrder - trainOrders.fromOrder).fill(0);
+                }
+                
+                // Add the passengers to every overlapping segment
+                const arr = bookedMap[b.train_id][b.train_class_id];
+                const searchFrom = trainOrders.fromOrder;
+                const searchTo = trainOrders.toOrder;
+                
+                for (let i = searchFrom; i < searchTo; i++) {
+                    if (b.booked_from_order <= i && b.booked_to_order > i) {
+                        arr[i - searchFrom] += parseInt(b.passenger_count, 10);
+                    }
+                }
+            }
         });
 
         // Format results
@@ -59,7 +91,12 @@ class JourneySearchService {
                 const totalSeats = parseInt(coach.count, 10) * parseInt(coach.seatsPerCoach, 10);
                 const price = parseInt(coach.price, 10) || 500;
                 
-                const booked = (bookedMap[row.train_id] && bookedMap[row.train_id][type]) ? bookedMap[row.train_id][type] : 0;
+                // Find peak occupancy across all segments for this request
+                let booked = 0;
+                if (bookedMap[row.train_id] && bookedMap[row.train_id][type]) {
+                    booked = Math.max(...bookedMap[row.train_id][type]);
+                }
+                
                 let available = totalSeats - booked;
                 let statusMsg = available > 0 ? 'Available' : 'WL';
                 

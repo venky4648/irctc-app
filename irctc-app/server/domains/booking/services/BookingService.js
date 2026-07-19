@@ -47,16 +47,47 @@ class BookingService {
             const baseFare = parseInt(targetCoach.price, 10) || 500;
             let totalFare = passengers.length * baseFare;
 
-            // Check how many seats are already booked
+            // We also need the halt_order of the newly requested from_station and to_station
+            const requestedRouteRes = await client.query(`
+                SELECT station_name, halt_order FROM train_routes
+                WHERE train_id = $1 AND LOWER(station_name) IN (LOWER($2), LOWER($3))
+            `, [train_id, from_station_id, to_station_id]);
+            
+            let searchFromOrder = 0;
+            let searchToOrder = 0;
+            for (const r of requestedRouteRes.rows) {
+                if (r.station_name.toLowerCase() === from_station_id.toLowerCase()) searchFromOrder = r.halt_order;
+                if (r.station_name.toLowerCase() === to_station_id.toLowerCase()) searchToOrder = r.halt_order;
+            }
+
+            // Check how many seats are already booked on overlapping segments
             const bookedRes = await client.query(`
-                SELECT COUNT(px.id) as booked_seats
+                SELECT tr1.halt_order AS booked_from_order, 
+                       tr2.halt_order AS booked_to_order,
+                       COUNT(px.id) as passenger_count
                 FROM pnrs p
                 JOIN passengers px ON p.id = px.pnr_id
+                JOIN train_routes tr1 ON p.train_id = tr1.train_id AND LOWER(p.from_station_name) = LOWER(tr1.station_name)
+                JOIN train_routes tr2 ON p.train_id = tr2.train_id AND LOWER(p.to_station_name) = LOWER(tr2.station_name)
                 WHERE p.journey_date = $1 AND p.train_id = $2 AND p.train_class_id = $3
                   AND p.status != 'CANCELLED' AND px.current_status != 'CANCELLED'
+                GROUP BY tr1.halt_order, tr2.halt_order
             `, [journey_date, train_id, class_id]);
             
-            let currentBooked = parseInt(bookedRes.rows[0].booked_seats, 10) || 0;
+            let peakBooked = 0;
+            for (let i = searchFromOrder; i < searchToOrder; i++) {
+                let currentSegmentBooked = 0;
+                for (const b of bookedRes.rows) {
+                    if (b.booked_from_order <= i && b.booked_to_order > i) {
+                        currentSegmentBooked += parseInt(b.passenger_count, 10);
+                    }
+                }
+                if (currentSegmentBooked > peakBooked) {
+                    peakBooked = currentSegmentBooked;
+                }
+            }
+            
+            let currentBooked = peakBooked;
 
             // 4. Create PNR Record
             const pnrRes = await client.query(
