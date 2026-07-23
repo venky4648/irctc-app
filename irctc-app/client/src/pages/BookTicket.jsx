@@ -183,7 +183,8 @@ export default function BookTicket() {
               verification_data: {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature
+                razorpay_signature: response.razorpay_signature,
+                transaction_id: initData.transaction.id
               },
               booking_data: payload
             };

@@ -21,16 +21,20 @@ class TransactionRepository {
         return result.rows[0];
     }
 
-    async updateTransactionStatus(client, transactionId, status, errorCode = null, errorMessage = null) {
+    async updateTransactionStatus(client, transactionId, status, errorCode = null, errorMessage = null, gatewayTxnId = null, methodId = null) {
         const query = `
             UPDATE payment_transactions 
-            SET status = $1, error_code = $2, error_message = $3, 
+            SET status = $1, 
+                error_code = $2, 
+                error_message = $3, 
+                gateway_transaction_id = COALESCE($5, gateway_transaction_id),
+                method_id = COALESCE($6, method_id),
                 completed_at = CASE WHEN $1 IN ('SUCCESS', 'FAILED') THEN CURRENT_TIMESTAMP ELSE completed_at END
             WHERE id = $4 
             RETURNING *
         `;
         const dbClient = client || pool;
-        const result = await dbClient.query(query, [status, errorCode, errorMessage, transactionId]);
+        const result = await dbClient.query(query, [status, errorCode, errorMessage, transactionId, gatewayTxnId, methodId]);
         return result.rows[0];
     }
 }

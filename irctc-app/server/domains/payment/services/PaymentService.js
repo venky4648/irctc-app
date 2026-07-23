@@ -107,9 +107,29 @@ class PaymentService {
             );
             
             if (isSuccess) {
+                // Fetch payment details from Razorpay to get the exact method used (UPI, card, etc.)
+                let methodId = null;
+                try {
+                    const rzp = this.getRazorpayInstance();
+                    const rzpPayment = await rzp.payments.fetch(verificationData.razorpay_payment_id);
+                    if (rzpPayment && rzpPayment.method) {
+                        methodId = rzpPayment.method; // e.g. "upi", "card", "netbanking"
+                    }
+                } catch (fetchErr) {
+                    logger.error("Failed to fetch Razorpay payment details", { error: fetchErr.message });
+                }
+
                 // 2. Update Payment Status
                 await PaymentRepository.updatePaymentStatus(client, paymentId, 'SUCCESS');
-                await TransactionRepository.updateTransactionStatus(client, verificationData.transaction_id, 'SUCCESS');
+                await TransactionRepository.updateTransactionStatus(
+                    client, 
+                    verificationData.transaction_id, 
+                    'SUCCESS', 
+                    null, 
+                    null, 
+                    verificationData.razorpay_payment_id, 
+                    methodId
+                );
                 
                 // 3. Double-Entry Accounting
                 await LedgerService.postLedgerEntry(client, 
